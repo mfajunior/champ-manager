@@ -35,6 +35,10 @@ app.get('/health', (req, res) => {
 const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
+// Championships routes
+const championshipRoutes = require('./routes/championships');
+app.use('/api/championships', championshipRoutes);
+
 // Teams routes (placeholder)
 // const teamsRoutes = require('./routes/teams');
 // app.use('/api/teams', teamsRoutes);

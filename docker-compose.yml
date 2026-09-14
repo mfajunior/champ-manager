@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:
@@ -13,7 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/migrations/001-initial-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U champy_user -d champy_championship"]
       interval: 10s
@@ -47,23 +45,7 @@ services:
       - ./backend/src:/app/src
     networks:
       - champy-network
-    command: npm run dev
-
-  # Frontend React (opcional - rode separadamente em dev)
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: champy-frontend
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     REACT_APP_API_URL: http://localhost:5000
-  #   depends_on:
-  #     - backend
-  #   networks:
-  #     - champy-network
-  #   command: npm start
+    command: node src/server.js
 
 volumes:
   postgres_data:
