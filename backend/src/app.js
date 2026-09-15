@@ -31,21 +31,22 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Auth routes
 const authRoutes = require('./routes/auth');
 app.use('/api/auth', authRoutes);
 
-// Championships routes
 const championshipRoutes = require('./routes/championships');
 app.use('/api/championships', championshipRoutes);
 
-// Teams routes (placeholder)
-// const teamsRoutes = require('./routes/teams');
-// app.use('/api/teams', teamsRoutes);
+const teamRoutes = require('./routes/teams');
+app.use('/api/teams', teamRoutes);
 
-// Workouts routes (placeholder)
-// const workoutsRoutes = require('./routes/workouts');
-// app.use('/api/workouts', workoutsRoutes);
+// Provas, suas variantes por categoria e a geração de baterias
+const workoutRoutes = require('./routes/workouts');
+app.use('/api/workouts', workoutRoutes);
+
+// Operações sobre uma bateria já existente (horário, status)
+const heatRoutes = require('./routes/heats');
+app.use('/api/heats', heatRoutes);
 
 // Results routes (placeholder)
 // const resultsRoutes = require('./routes/results');
