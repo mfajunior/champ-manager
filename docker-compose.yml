@@ -4,16 +4,16 @@ services:
     image: postgres:16-alpine
     container_name: champy-db
     environment:
-      POSTGRES_USER: champy_user
-      POSTGRES_PASSWORD: champy_password
-      POSTGRES_DB: champy_championship
+      POSTGRES_USER: ${DB_USER:?defina DB_USER no .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
+      POSTGRES_DB: ${DB_NAME:?defina DB_NAME no .env}
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/migrations/001-initial-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U champy_user -d champy_championship"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,17 +27,17 @@ services:
       dockerfile: Dockerfile
     container_name: champy-backend
     environment:
-      NODE_ENV: development
+      NODE_ENV: ${NODE_ENV:-development}
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: champy_user
-      DB_PASSWORD: champy_password
-      DB_NAME: champy_championship
-      JWT_SECRET: dev-secret-key-change-in-production
-      CORS_ORIGIN: http://localhost:3000
-      PORT: 5000
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      PORT: ${BACKEND_PORT:-5000}
     ports:
-      - "5000:5000"
+      - "${BACKEND_PORT:-5000}:5000"
     depends_on:
       postgres:
         condition: service_healthy
