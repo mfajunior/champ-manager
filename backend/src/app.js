@@ -48,9 +48,9 @@ app.use('/api/workouts', workoutRoutes);
 const heatRoutes = require('./routes/heats');
 app.use('/api/heats', heatRoutes);
 
-// Results routes (placeholder)
-// const resultsRoutes = require('./routes/results');
-// app.use('/api/results', resultsRoutes);
+// Lançamento de desempenho bruto (tempo/reps/carga) e colocação calculada
+const resultsRoutes = require('./routes/results');
+app.use('/api/results', resultsRoutes);
 
 // Leaderboard routes (placeholder)
 // const leaderboardRoutes = require('./routes/leaderboard');

@@ -245,10 +245,12 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     // Uma query para todas as raias, em vez de uma por bateria dentro de um loop.
+    // ht.id (heat_team_id) vai junto: é o identificador que POST /api/results espera
+    // para saber contra qual raia o resultado está sendo lançado.
     const heatIds = heats.map((h) => h.id);
     const lanes = await queryAll(
-      `SELECT ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
-              r.id AS result_id, r."place", r.time_or_reps
+      `SELECT ht.id AS heat_team_id, ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
+              r.id AS result_id, r."place", r.raw_value, r.did_not_finish
        FROM heat_teams ht
        JOIN teams t ON t.id = ht.team_id
        LEFT JOIN results r ON r.heat_team_id = ht.id
