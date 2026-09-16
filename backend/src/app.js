@@ -52,9 +52,9 @@ app.use('/api/heats', heatRoutes);
 const resultsRoutes = require('./routes/results');
 app.use('/api/results', resultsRoutes);
 
-// Leaderboard routes (placeholder)
-// const leaderboardRoutes = require('./routes/leaderboard');
-// app.use('/api/leaderboard', leaderboardRoutes);
+// Ranking por categoria, mantido pelo trigger em cima de results (só leitura)
+const leaderboardRoutes = require('./routes/leaderboard');
+app.use('/api/leaderboard', leaderboardRoutes);
 
 // ==================== ERROR HANDLING ====================
 

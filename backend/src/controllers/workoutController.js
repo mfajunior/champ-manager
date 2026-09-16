@@ -5,19 +5,37 @@ const { query, queryOne, queryAll } = require('../config/database');
  * O que muda por categoria — cargas, movimentos escalados, time cap — vive em
  * workout_variants. Assim "Prova 1" é uma só no cronograma do evento, e cada
  * categoria enxerga a sua versão.
+ *
+ * scoring_type decide como recalculate_placements (migration 003) ordena os
+ * resultados dessa prova: 'time' (menor vence, ex.: FOR_TIME), 'reps' ou
+ * 'load' (maior vence, ex.: AMRAP ou LPO). Sem isso vindo do create, toda
+ * prova nascia com o default do banco ('time'), então uma prova de AMRAP
+ * lançada sem o campo era rankeada como se fosse contra o relógio.
  */
 
+const ALLOWED_SCORING_TYPES = ['time', 'reps', 'load'];
+
 // POST /api/workouts  (protegido)
-// body: { championship_id, workout_number, name, type }
+// body: { championship_id, workout_number, name, type, scoring_type? }
 exports.create = async (req, res, next) => {
   try {
-    const { championship_id, workout_number, name, type } = req.body;
+    const { championship_id, workout_number, name, type, scoring_type } = req.body;
 
     if (!championship_id || !workout_number || !name) {
       return res.status(400).json({
         error: {
           code: 'VALIDATION_ERROR',
           message: 'championship_id, workout_number e name são obrigatórios',
+        },
+      });
+    }
+
+    const scoringType = scoring_type || 'time';
+    if (!ALLOWED_SCORING_TYPES.includes(scoringType)) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `scoring_type deve ser um de: ${ALLOWED_SCORING_TYPES.join(', ')}`,
         },
       });
     }
@@ -48,10 +66,10 @@ exports.create = async (req, res, next) => {
     }
 
     const workout = await queryOne(
-      `INSERT INTO workouts (championship_id, workout_number, name, type, created_by)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, championship_id, workout_number, name, type, status, created_at`,
-      [championship_id, workout_number, name, type || null, req.user.id]
+      `INSERT INTO workouts (championship_id, workout_number, name, type, scoring_type, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, championship_id, workout_number, name, type, scoring_type, status, created_at`,
+      [championship_id, workout_number, name, type || null, scoringType, req.user.id]
     );
 
     res.status(201).json({
@@ -89,7 +107,8 @@ exports.getAll = async (req, res, next) => {
     }
 
     const workouts = await queryAll(
-      `SELECT w.id, w.championship_id, w.workout_number, w.name, w.type, w.status, w.created_at,
+      `SELECT w.id, w.championship_id, w.workout_number, w.name, w.type, w.scoring_type,
+              w.status, w.created_at,
               COUNT(wv.id)::int AS variants_count
        FROM workouts w
        LEFT JOIN workout_variants wv ON wv.workout_id = w.id
@@ -115,7 +134,7 @@ exports.getById = async (req, res, next) => {
     const { id } = req.params;
 
     const workout = await queryOne(
-      `SELECT id, championship_id, workout_number, name, type, status, description, created_at
+      `SELECT id, championship_id, workout_number, name, type, scoring_type, status, description, created_at
        FROM workouts WHERE id = $1`,
       [id]
     );
@@ -149,11 +168,20 @@ exports.getById = async (req, res, next) => {
 };
 
 // PUT /api/workouts/:id  (protegido)
-// body: { workout_number?, name?, type?, status?, description? }
+// body: { workout_number?, name?, type?, scoring_type?, status?, description? }
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { workout_number, name, type, status, description } = req.body;
+    const { workout_number, name, type, scoring_type, status, description } = req.body;
+
+    if (scoring_type !== undefined && !ALLOWED_SCORING_TYPES.includes(scoring_type)) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `scoring_type deve ser um de: ${ALLOWED_SCORING_TYPES.join(', ')}`,
+        },
+      });
+    }
 
     const workout = await queryOne(
       'SELECT id, championship_id FROM workouts WHERE id = $1',
@@ -183,21 +211,45 @@ exports.update = async (req, res, next) => {
       }
     }
 
+    // Trocar o scoring_type de uma prova que já tem resultados lançados deixa
+    // o ranking incoerente até o próximo resultado ser corrigido (nada re-
+    // dispara o trigger sozinho). Avisamos, mas não bloqueamos — o organizador
+    // pode estar corrigindo um erro de cadastro antes de qualquer resultado.
+    let warning;
+    if (scoring_type !== undefined) {
+      const existingResults = await queryOne(
+        `SELECT COUNT(r.id)::int AS total
+         FROM results r
+         JOIN heat_teams ht ON ht.id = r.heat_team_id
+         JOIN heats h ON h.id = ht.heat_id
+         WHERE h.workout_id = $1`,
+        [id]
+      );
+      if (existingResults.total > 0) {
+        warning =
+          `Esta prova já tem ${existingResults.total} resultado(s) lançado(s). ` +
+          'O ranking deles só será recalculado com o novo scoring_type quando ' +
+          'algum resultado for corrigido (UPDATE) ou relançado.';
+      }
+    }
+
     // COALESCE deixa o cliente mandar só o que mudou, em vez de reenviar o objeto inteiro.
     const updated = await queryOne(
       `UPDATE workouts
        SET workout_number = COALESCE($1, workout_number),
            name           = COALESCE($2, name),
            type           = COALESCE($3, type),
-           status         = COALESCE($4, status),
-           description    = COALESCE($5, description),
+           scoring_type   = COALESCE($4, scoring_type),
+           status         = COALESCE($5, status),
+           description    = COALESCE($6, description),
            updated_at     = CURRENT_TIMESTAMP
-       WHERE id = $6
-       RETURNING id, championship_id, workout_number, name, type, status, description, updated_at`,
+       WHERE id = $7
+       RETURNING id, championship_id, workout_number, name, type, scoring_type, status, description, updated_at`,
       [
         workout_number ?? null,
         name ?? null,
         type ?? null,
+        scoring_type ?? null,
         status ?? null,
         description ?? null,
         id,
@@ -206,7 +258,7 @@ exports.update = async (req, res, next) => {
 
     res.status(200).json({
       data: updated,
-      meta: { message: 'Prova atualizada com sucesso' },
+      meta: { message: 'Prova atualizada com sucesso', ...(warning && { warning }) },
     });
   } catch (error) {
     next(error);
