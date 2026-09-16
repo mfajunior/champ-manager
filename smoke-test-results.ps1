@@ -133,7 +133,7 @@ if ($byName2['Equipe D'] -eq 1 -and $byName2['Equipe C'] -eq 2) {
 
 # ----------------------------------------------------------- 8. DELETE
 Step 8 'Removendo o resultado de C (lancado por engano) e conferindo recalculo'
-Api DELETE "/results/$($rC.data.id)" $token | Out-Null
+Api DELETE "/results/$($rC.data.id)" -Token $token | Out-Null
 $ranking3 = Api GET "/results?workout_id=$workoutId&category_id=$($cat.id)"
 Write-Host "    resultados restantes: $($ranking3.data.Count)"
 $byName3 = @{}
