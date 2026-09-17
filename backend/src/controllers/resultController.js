@@ -84,6 +84,29 @@ const broadcastLeaderboard = async (req, heatTeamId) => {
   }
 };
 
+/**
+ * Registra uma linha no histórico de auditoria (migration 004).
+ *
+ * Feito aqui em JS, não com um trigger de banco: um trigger PL/pgSQL só
+ * enxerga o que está na linha que mudou, nunca quem fez a requisição HTTP —
+ * pra saber isso ele precisaria de uma sessão de banco carregando
+ * `req.user.id` (algo como `SET LOCAL app.user_id`), complexidade que não se
+ * paga aqui, já que o controller já TEM `req.user.id` disponível de graça.
+ *
+ * Diferente do broadcastLeaderboard, esta função NÃO engole erro: falhar em
+ * escrever o log de auditoria é um problema de dado, não um efeito colateral
+ * best-effort como o WebSocket. Se a escrita falhar, a request inteira falha
+ * (o catch dos controllers chama next(error) normalmente).
+ */
+const logAuditEntry = async ({ action, resultId, heatTeamId, rawValue, didNotFinish, place, userId }) => {
+  await query(
+    `INSERT INTO result_audit_log
+       (heat_team_id, result_id, action, raw_value, did_not_finish, "place", changed_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [heatTeamId, resultId, action, rawValue, didNotFinish, place, userId]
+  );
+};
+
 // POST /api/results  (protegido)
 // body: { heat_team_id, raw_value, did_not_finish }
 exports.create = async (req, res, next) => {
@@ -142,6 +165,16 @@ exports.create = async (req, res, next) => {
        FROM results WHERE id = $1`,
       [inserted.id]
     );
+
+    await logAuditEntry({
+      action: 'created',
+      resultId: result.id,
+      heatTeamId: result.heat_team_id,
+      rawValue: result.raw_value,
+      didNotFinish: result.did_not_finish,
+      place: result.place,
+      userId: req.user.id,
+    });
 
     await broadcastLeaderboard(req, result.heat_team_id);
 
@@ -206,6 +239,44 @@ exports.getByWorkout = async (req, res, next) => {
   }
 };
 
+// GET /api/results/heat-teams/:heat_team_id/history  (protegido)
+// Histórico de tudo que já aconteceu com o resultado de uma raia: criação,
+// correções e remoção, com quem fez cada uma. A consulta é por heat_team_id
+// (a raia), não por result_id — a raia continua existindo mesmo depois que o
+// resultado é apagado, então é a chave estável para "me mostra o histórico
+// disso", com ou sem resultado ativo no momento.
+exports.getHistory = async (req, res, next) => {
+  try {
+    const { heat_team_id } = req.params;
+
+    const heatTeam = await queryOne('SELECT id FROM heat_teams WHERE id = $1', [heat_team_id]);
+
+    if (!heatTeam) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'heat_team_id não encontrado' },
+      });
+    }
+
+    const history = await queryAll(
+      `SELECT ral.id, ral.result_id, ral.action, ral.raw_value, ral.did_not_finish,
+              ral."place", ral.changed_at,
+              u.id AS changed_by_id, u.name AS changed_by_name, u.email AS changed_by_email
+       FROM result_audit_log ral
+       LEFT JOIN users u ON u.id = ral.changed_by
+       WHERE ral.heat_team_id = $1
+       ORDER BY ral.changed_at ASC, ral.id ASC`,
+      [heat_team_id]
+    );
+
+    res.status(200).json({
+      data: history,
+      meta: { message: 'Histórico recuperado com sucesso', total: history.length },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // PUT /api/results/:id  (protegido)
 // body: { raw_value?, did_not_finish? }
 // Aceita atualizar só um dos dois campos: o outro mantém o valor atual da linha.
@@ -246,6 +317,16 @@ exports.update = async (req, res, next) => {
       [id]
     );
 
+    await logAuditEntry({
+      action: 'updated',
+      resultId: updated.id,
+      heatTeamId: updated.heat_team_id,
+      rawValue: updated.raw_value,
+      didNotFinish: updated.did_not_finish,
+      place: updated.place,
+      userId: req.user.id,
+    });
+
     await broadcastLeaderboard(req, updated.heat_team_id);
 
     res.status(200).json({
@@ -267,7 +348,7 @@ exports.delete = async (req, res, next) => {
     const { id } = req.params;
 
     const result = await queryOne(
-      'SELECT id, heat_team_id FROM results WHERE id = $1',
+      'SELECT id, heat_team_id, raw_value, did_not_finish, "place" FROM results WHERE id = $1',
       [id]
     );
 
@@ -276,6 +357,20 @@ exports.delete = async (req, res, next) => {
         error: { code: 'NOT_FOUND', message: 'Resultado não encontrado' },
       });
     }
+
+    // Grava o log ANTES do DELETE, com o result_id ainda válido. A constraint
+    // é ON DELETE SET NULL (não CASCADE) — o DELETE abaixo vai automaticamente
+    // zerar result_audit_log.result_id nesta linha, mas a linha em si (com o
+    // action='deleted' e os valores de antes de apagar) sobrevive.
+    await logAuditEntry({
+      action: 'deleted',
+      resultId: result.id,
+      heatTeamId: result.heat_team_id,
+      rawValue: result.raw_value,
+      didNotFinish: result.did_not_finish,
+      place: result.place,
+      userId: req.user.id,
+    });
 
     await query('DELETE FROM results WHERE id = $1', [id]);
 
