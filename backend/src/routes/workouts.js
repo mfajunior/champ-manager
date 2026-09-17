@@ -3,6 +3,8 @@ const router = express.Router();
 const workoutController = require('../controllers/workoutController');
 const heatController = require('../controllers/heatController');
 const { authMiddleware } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const schemas = require('../validations/schemas');
 
 /**
  * Tudo que é filho de uma prova mora aqui — variantes e baterias incluídas.
@@ -29,7 +31,12 @@ router.delete('/:workout_id/variants/:category_id', authMiddleware, workoutContr
 
 // ---- Provas ----
 // POST /api/workouts - Criar prova (protegido)
-router.post('/', authMiddleware, workoutController.create);
+router.post(
+  '/',
+  authMiddleware,
+  validate(schemas.workoutCreate),
+  workoutController.create
+);
 
 // GET /api/workouts?championship_id=1 - Listar provas do campeonato (público)
 router.get('/', workoutController.getAll);
@@ -38,7 +45,12 @@ router.get('/', workoutController.getAll);
 router.get('/:id', workoutController.getById);
 
 // PUT /api/workouts/:id - Atualizar prova (protegido)
-router.put('/:id', authMiddleware, workoutController.update);
+router.put(
+  '/:id',
+  authMiddleware,
+  validate(schemas.workoutUpdate),
+  workoutController.update
+);
 
 // DELETE /api/workouts/:id - Deletar prova (protegido)
 router.delete('/:id', authMiddleware, workoutController.delete);

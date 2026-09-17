@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const championshipController = require('../controllers/championshipController');
 const { authMiddleware } = require('../middleware/auth');
+const { validate } = require('../middleware/validate');
+const schemas = require('../validations/schemas');
 
 /**
  * As provas do campeonato saíram daqui e foram para GET /api/workouts?championship_id=N.
@@ -11,7 +13,12 @@ const { authMiddleware } = require('../middleware/auth');
  */
 
 // POST /api/championships - Criar campeonato + 5 categorias padrão (protegido)
-router.post('/', authMiddleware, championshipController.create);
+router.post(
+  '/',
+  authMiddleware,
+  validate(schemas.championshipCreate),
+  championshipController.create
+);
 
 // GET /api/championships - Listar campeonatos (público)
 router.get('/', championshipController.getAll);
@@ -20,7 +27,12 @@ router.get('/', championshipController.getAll);
 router.get('/:id', championshipController.getById);
 
 // PUT /api/championships/:id - Atualizar campeonato (protegido)
-router.put('/:id', authMiddleware, championshipController.update);
+router.put(
+  '/:id',
+  authMiddleware,
+  validate(schemas.championshipUpdate),
+  championshipController.update
+);
 
 // DELETE /api/championships/:id - Deletar campeonato (protegido)
 router.delete('/:id', authMiddleware, championshipController.delete);

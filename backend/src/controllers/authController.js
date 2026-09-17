@@ -18,16 +18,9 @@ const { generateToken } = require('../middleware/auth');
  */
 exports.register = async (req, res, next) => {
   try {
+    // Formato do corpo (email válido, senha com tamanho mínimo, name presente)
+    // já foi validado pelo middleware `validate(schemas.authRegister)` na rota.
     const { email, password, name } = req.body;
-
-    if (!email || !password || !name) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Email, password e name são obrigatórios',
-        },
-      });
-    }
 
     const existingUser = await queryOne('SELECT id FROM users WHERE email = $1', [
       email,
@@ -76,16 +69,8 @@ exports.register = async (req, res, next) => {
  */
 exports.login = async (req, res, next) => {
   try {
+    // Formato do corpo já validado pelo middleware `validate(schemas.authLogin)`.
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Email e password são obrigatórios',
-        },
-      });
-    }
 
     const user = await queryOne(
       'SELECT id, email, name, password_hash FROM users WHERE email = $1',
