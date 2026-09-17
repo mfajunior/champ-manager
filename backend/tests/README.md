@@ -21,8 +21,8 @@ Sobe o app Express de verdade contra um banco Postgres **real**, chamado
 `champy_championship_test`.
 
 - `auth.test.js`, `championships.test.js`, `teams.test.js`, `workouts.test.js`,
-  `leaderboard.test.js`, `results.test.js` falam com `src/app.js` via
-  `supertest`, sem precisar de servidor HTTP nem de WebSocket.
+  `heats.test.js`, `leaderboard.test.js`, `results.test.js` falam com
+  `src/app.js` via `supertest`, sem precisar de servidor HTTP nem de WebSocket.
 - `websocket.test.js` é diferente dos outros: sobe um `http.createServer(app)`
   de verdade com Socket.io ligado (via `src/socket.js`) e conecta um cliente
   `socket.io-client` real, porque `supertest` sozinho nunca chama
@@ -85,20 +85,20 @@ campeonato próprio (`Jest Championship`) e apagam ele no `afterAll` — não
 tocam nos dados que você já tem no banco de desenvolvimento, porque usam
 um banco separado.
 
+### CI
+
+`.github/workflows/backend-tests.yml` roda esta suíte inteira a cada push e
+pull request pra `main`: sobe um Postgres 16 como service container, aplica
+as três migrations na ordem, escreve o `.env.test` do runner e roda
+`npm test`. Validado localmente antes de subir — apliquei as migrations do
+zero num banco novo e rodei a suíte inteira contra ele, simulando exatamente
+os passos do workflow, antes de confiar que o YAML ia funcionar de verdade no
+GitHub.
+
 ### O que ainda falta aqui (sendo honesto)
 
-- `heatController.generate` (a geração de baterias em si, com transação e a
-  trava contra apagar resultados existentes) só tem teste unitário da função
-  pura `distributeTeams` — o fluxo completo do endpoint contra banco real
-  ainda não tem teste de integração dedicado (é exercitado indiretamente pelo
-  `beforeAll` de `leaderboard.test.js` e `websocket.test.js`, mas sem
-  asserções próprias sobre ele).
-- `workoutController.update` tem um aviso (`meta.warning`) quando o
-  `scoring_type` muda numa prova que já tem resultados lançados — esse caso
-  específico não está coberto, só o caminho sem resultados existentes.
 - `jest.config.js` roda tudo em série (`maxWorkers: 1`) porque as suítes de
   integração ainda compartilham o mesmo banco de teste; se crescer, vale
   isolar por schema ou por transação por teste.
-- Sem CI: os testes só rodam quando alguém lembra de rodar `npm test` local.
-  Um GitHub Actions simples (subir Postgres em container, rodar migrations,
-  `npm test`) fecharia esse gap — não foi feito ainda.
+- Cobertura de código (`--coverage`) não é medida — não tem como afirmar
+  "X% coberto", só que os fluxos principais de cada controller têm teste.

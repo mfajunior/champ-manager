@@ -1,5 +1,7 @@
 # 🏆 Champy - Gerenciador de Campeonatos de CrossFit
 
+[![Backend Tests](https://github.com/mfajunior/champ-manager/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/mfajunior/champ-manager/actions/workflows/backend-tests.yml)
+
 Uma plataforma de código aberto para gerenciar campeonatos de CrossFit: cadastro de equipes, gestão de provas, distribuição de baterias, lançamento de resultados e leaderboard por categoria.
 
 ## 📋 Sobre o Projeto
