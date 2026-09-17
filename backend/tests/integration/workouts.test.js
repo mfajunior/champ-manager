@@ -126,6 +126,46 @@ describe('Workouts (integração com banco real)', () => {
     expect(res.status).toBe(400);
   });
 
+  test('PUT /:id avisa (mas não bloqueia) trocar scoring_type de prova com resultado já lançado', async () => {
+    const lista = await request(app).get(`/api/workouts?championship_id=${championshipId}`);
+    const workoutId = lista.body.data.find((w) => w.workout_number === 1).id;
+
+    const championship = await request(app).get(`/api/championships/${championshipId}`);
+    const categoryId = championship.body.data.categories[0].id;
+
+    await request(app)
+      .post('/api/teams')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ championship_id: championshipId, category_id: categoryId, name: 'Equipe Warning' });
+
+    await request(app)
+      .post(`/api/workouts/${workoutId}/heats`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ category_id: categoryId, lanes_per_heat: 4 });
+
+    const heats = await request(app).get(`/api/workouts/${workoutId}/heats?category_id=${categoryId}`);
+    const heatTeamId = heats.body.data[0].teams[0].heat_team_id;
+
+    await request(app)
+      .post('/api/results')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ heat_team_id: heatTeamId, raw_value: 300 });
+
+    // Troca de 'time' pra 'reps' numa prova que já tem 1 resultado lançado
+    // com esse scoring_type: a troca é aceita (o organizador pode estar
+    // corrigindo um cadastro), mas vem com aviso — o ranking desse resultado
+    // só será recalculado com a regra nova quando ele for corrigido de novo.
+    const res = await request(app)
+      .put(`/api/workouts/${workoutId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ scoring_type: 'reps' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.scoring_type).toBe('reps');
+    expect(res.body.meta.warning).toBeDefined();
+    expect(res.body.meta.warning).toMatch(/1 resultado/);
+  });
+
   test('PUT variante cria a descrição por categoria e é idempotente (upsert)', async () => {
     const lista = await request(app).get(`/api/workouts?championship_id=${championshipId}`);
     const workoutId = lista.body.data.find((w) => w.workout_number === 2).id;

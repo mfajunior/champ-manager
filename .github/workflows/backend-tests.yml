@@ -1,0 +1,83 @@
+name: Backend Tests
+
+# Roda a suite Jest (unit + integração) a cada push/PR pra main — sem isso, os
+# testes só existem se alguém lembrar de rodar `npm test` na própria máquina
+# antes de commitar. `services.postgres` sobe um Postgres 16 de verdade no
+# runner (mesma versão do docker-compose.yml do projeto), então os testes de
+# integração rodam contra banco real aqui também, não contra um mock.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: champy_user
+          POSTGRES_PASSWORD: champy_password
+          POSTGRES_DB: champy_championship_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U champy_user -d champy_championship_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: backend
+        run: npm ci
+
+      # As migrations rodam na ordem numérica do nome do arquivo (001, 002,
+      # 003...) — é a mesma ordem que tests/README.md documenta pra rodar
+      # manualmente, só automatizada aqui.
+      - name: Rodar migrations no banco de teste
+        working-directory: backend
+        env:
+          PGPASSWORD: champy_password
+        run: |
+          for f in migrations/*.sql; do
+            echo "Aplicando $f"
+            psql -h localhost -U champy_user -d champy_championship_test -f "$f"
+          done
+
+      # tests/env.setup.js (carregado pelo jest.config.js) lê este arquivo via
+      # dotenv antes de qualquer módulo do app subir — sem ele, src/config/database.js
+      # tentaria usar as variáveis de ambiente de desenvolvimento (que não existem
+      # neste runner) e falharia com o mesmo erro de SASL que já apareceu uma vez
+      # neste projeto por causa de um .env.test vazio.
+      - name: Criar .env.test
+        working-directory: backend
+        run: |
+          cat > .env.test << 'EOF'
+          DB_USER=champy_user
+          DB_PASSWORD=champy_password
+          DB_NAME=champy_championship_test
+          DB_HOST=localhost
+          DB_PORT=5432
+
+          NODE_ENV=test
+          JWT_SECRET=ci-test-secret-nao-usar-em-producao
+          CORS_ORIGIN=http://localhost:3000
+          EOF
+
+      - name: Rodar testes (unit + integração)
+        working-directory: backend
+        run: npm test
