@@ -21,7 +21,7 @@ Uma plataforma de código aberto para gerenciar campeonatos de CrossFit: cadastr
 
 ### Para Atletas/Público (Sem Login)
 - ✅ **Leaderboard Público**: consulta de ranking via API, filtrável por categoria
-- ⏳ **Updates ao Vivo (WebSocket)**: o servidor já inicializa Socket.io e aceita inscrição por campeonato (`server.js`), mas nenhum controller chama a função de broadcast ainda. Hoje é preciso um novo GET para ver o ranking atualizado — não é uma feature pronta, é infraestrutura à espera de ser ligada.
+- ✅ **Updates ao Vivo (WebSocket)**: toda vez que um resultado é lançado, corrigido ou apagado, `resultController` busca o leaderboard fresco e emite `leaderboard_updated` para quem estiver inscrito naquele campeonato — sem precisar de refresh ou novo GET. Validado de ponta a ponta com um cliente de teste (`backend/test-websocket.js`).
 
 ---
 
@@ -33,8 +33,8 @@ Uma plataforma de código aberto para gerenciar campeonatos de CrossFit: cadastr
 Frontend (React)          →  Backend (Node.js)       →  Database (PostgreSQL)
 ├─ Painel Operacional     ├─ Express.js              ├─ 10 tabelas normalizadas
 ├─ Leaderboard Público    ├─ JWT Authentication      ├─ Triggers auto-recalc
-└─ (ainda não iniciado)   ├─ Socket.io (preparado,   └─ Índices otimizados
-                          │  broadcast não ligado)
+└─ (ainda não iniciado)   ├─ Socket.io (broadcast    └─ Índices otimizados
+                          │  ligado ao resultController)
                           └─ Validação manual por controller
 ```
 
@@ -54,10 +54,10 @@ Frontend (React)          →  Backend (Node.js)       →  Database (PostgreSQL
 - **JWT**: Stateless, escalável, sem servidor de sessão necessário
 - Ideal para arquitetura simples (nosso caso)
 
-#### **Socket.io vs Polling — decisão tomada, implementação pela metade**
+#### **Socket.io vs Polling**
 - **Polling**: frontend bate no servidor a cada 1s = 50 requests/s = pesado
 - **Socket.io**: conexão persistente, push de dados só quando há mudança
-- **Status real**: o servidor já sobe com Socket.io e um evento `subscribe_championship` (`backend/src/server.js`), com uma função `broadcastLeaderboardUpdate` pronta para emitir. Só que nenhum controller a chama — lançar, corrigir ou apagar um resultado hoje não dispara nada pelo socket. A decisão está tomada e a infraestrutura está de pé; falta ligar o fio entre "resultado mudou" e "avisar quem está ouvindo". Registro isso aqui de propósito, para não passar a impressão de que o real-time já funciona.
+- **Como está ligado**: o servidor sobe com Socket.io e um evento `subscribe_championship` (`backend/src/server.js`) que coloca o cliente numa sala `championship:<id>`. Dentro de `resultController` (`create`, `update` e `delete`), depois que o banco já processou a escrita e o trigger já recalculou `team_standings`, uma função `broadcastLeaderboard` busca o ranking fresco daquele campeonato e chama `broadcastLeaderboardUpdate`, que emite `leaderboard_updated` só para quem está naquela sala — quem está vendo outro campeonato não recebe nada. Uma falha no broadcast (cliente caiu, erro de rede) fica isolada num `try/catch` e nunca derruba a resposta HTTP de quem lançou o resultado, porque o dado já foi salvo com sucesso antes do broadcast ser tentado.
 
 #### **Colocação sempre calculada, nunca digitada**
 
@@ -295,10 +295,9 @@ npm run build
 - ✅ Gestão de Provas/Baterias (com variantes por categoria e `scoring_type`)
 - ✅ Lançamento de Resultados (colocação sempre calculada, com empate e DNF)
 - ✅ Leaderboard por categoria (consulta via API)
-- ⏳ Leaderboard em tempo real — infraestrutura de WebSocket já existe (`server.js`), falta ligar o broadcast aos controllers de resultado
+- ✅ Leaderboard em tempo real via WebSocket, validado com cliente de teste
 
 ### v0.2 (Próximo)
-- ⏳ Ligar o Socket.io ao fluxo de resultados (real-time de fato)
 - ⏳ Testes automatizados (Jest) substituindo os smoke tests manuais em PowerShell
 - ⏳ Decidir entre usar Joi de verdade ou remover a dependência não utilizada
 - ⏳ Frontend em React (painel operacional + leaderboard público)

@@ -26,6 +26,60 @@ const validateScoreShape = (rawValue, didNotFinish) => {
   return null;
 };
 
+/**
+ * Avisa quem está ouvindo o leaderboard daquele campeonato via WebSocket.
+ *
+ * O trigger do Postgres recalcula team_standings sozinho, mas um trigger de
+ * banco não tem como emitir evento nenhum — só sabe mexer em tabela. Alguém
+ * do lado do Node precisa perceber "um resultado mudou" e empurrar o dado
+ * novo para os clientes inscritos. Como é aqui que sabemos que um resultado
+ * foi criado/corrigido/apagado, é aqui que isso acontece.
+ *
+ * Broadcast é por CAMPEONATO inteiro (todas as categorias juntas), porque a
+ * sala do Socket.io (`subscribe_championship`, em server.js) também é só por
+ * campeonato — não existe sala por categoria hoje. O cliente que só quer ver
+ * uma categoria filtra a lista recebida do lado dele.
+ *
+ * Nunca deixa uma falha aqui derrubar a resposta HTTP: o resultado já foi
+ * salvo com sucesso no banco antes desta função ser chamada — se o socket
+ * falhar, quem lançou o resultado ainda deve receber 200/201 normalmente.
+ */
+const broadcastLeaderboard = async (req, heatTeamId) => {
+  try {
+    const broadcast = req.app?.locals?.broadcastLeaderboardUpdate;
+    if (!broadcast) return; // socket não subiu (ex.: rodando em teste sem server.js)
+
+    const context = await queryOne(
+      `SELECT w.championship_id
+       FROM heat_teams ht
+       JOIN heats h ON h.id = ht.heat_id
+       JOIN workouts w ON w.id = h.workout_id
+       WHERE ht.id = $1`,
+      [heatTeamId]
+    );
+
+    if (!context) return;
+
+    // Mesma forma de consulta do leaderboardController, sem filtro de
+    // categoria — o campeonato inteiro é o que a sala do socket representa.
+    const standings = await queryAll(
+      `SELECT ts.id, ts.team_id, t.name AS team_name,
+              ts.category_id, c.name AS category_name,
+              ts.total_score, ts."place", ts.workouts_completed, ts.updated_at
+       FROM team_standings ts
+       JOIN teams t ON t.id = ts.team_id
+       JOIN categories c ON c.id = ts.category_id
+       WHERE ts.championship_id = $1
+       ORDER BY c.id ASC, ts."place" ASC`,
+      [context.championship_id]
+    );
+
+    broadcast(context.championship_id, standings);
+  } catch (error) {
+    console.error('Falha ao emitir leaderboard via WebSocket:', error.message);
+  }
+};
+
 // POST /api/results  (protegido)
 // body: { heat_team_id, raw_value, did_not_finish }
 exports.create = async (req, res, next) => {
@@ -84,6 +138,8 @@ exports.create = async (req, res, next) => {
        FROM results WHERE id = $1`,
       [inserted.id]
     );
+
+    await broadcastLeaderboard(req, result.heat_team_id);
 
     res.status(201).json({
       data: result,
@@ -186,6 +242,8 @@ exports.update = async (req, res, next) => {
       [id]
     );
 
+    await broadcastLeaderboard(req, updated.heat_team_id);
+
     res.status(200).json({
       data: updated,
       meta: { message: 'Resultado atualizado com sucesso' },
@@ -197,12 +255,17 @@ exports.update = async (req, res, next) => {
 
 // DELETE /api/results/:id  (protegido)
 // O trigger recalcula placement da categoria e standings do campeonato
-// automaticamente após o DELETE — nenhuma chamada extra é necessária aqui.
+// automaticamente após o DELETE — nenhuma chamada extra é necessária para o
+// banco. Mas para o broadcast precisamos do heat_team_id ANTES de apagar a
+// linha, porque depois do DELETE ele não existe mais para consultar.
 exports.delete = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const result = await queryOne('SELECT id FROM results WHERE id = $1', [id]);
+    const result = await queryOne(
+      'SELECT id, heat_team_id FROM results WHERE id = $1',
+      [id]
+    );
 
     if (!result) {
       return res.status(404).json({
@@ -211,6 +274,8 @@ exports.delete = async (req, res, next) => {
     }
 
     await query('DELETE FROM results WHERE id = $1', [id]);
+
+    await broadcastLeaderboard(req, result.heat_team_id);
 
     res.status(200).json({
       data: null,
