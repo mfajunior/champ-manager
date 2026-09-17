@@ -10,16 +10,8 @@ const { query, queryOne, queryAll } = require('../config/database');
 // body: { championship_id, category_id, name }
 exports.create = async (req, res, next) => {
   try {
+    // Formato do corpo já validado pelo middleware `validate(schemas.teamCreate)`.
     const { championship_id, category_id, name } = req.body;
-
-    if (!championship_id || !category_id || !name) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'championship_id, category_id e name são obrigatórios',
-        },
-      });
-    }
 
     const category = await queryOne(
       'SELECT id, championship_id, name FROM categories WHERE id = $1',
@@ -155,16 +147,9 @@ exports.getById = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
+    // "ao menos um campo presente" já é garantido pelo .min(1) do
+    // schemas.teamUpdate, validado na rota.
     const { name, category_id } = req.body;
-
-    if (name === undefined && category_id === undefined) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Informe ao menos name ou category_id',
-        },
-      });
-    }
 
     const team = await queryOne(
       'SELECT id, championship_id, category_id, name FROM teams WHERE id = $1',

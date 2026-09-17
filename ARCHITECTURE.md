@@ -1,345 +1,219 @@
-# 🏆 Champy Clone - Arquitetura e Decisões
+# 🏗️ Champy — Arquitetura
 
-## 1. Visão Geral do Sistema
+Este documento é a referência técnica do backend: schema atual do banco,
+camadas da API e os fluxos principais. As decisões de projeto — **por quê**
+PostgreSQL, por que `RANK()` num lugar e `ROW_NUMBER()` em outro, por que o
+round-robin nas baterias — estão detalhadas no [README.md](./README.md),
+seção "Por Quê Estas Escolhas?". Este arquivo não repete aquela discussão;
+ele documenta o estado atual do sistema.
+
+> Versão anterior deste arquivo descrevia o schema antes das migrations 002
+> e 003 (sem `workout_variants`, sem `scoring_type`, com `place` digitado
+> manualmente pelo operador). Ficou desatualizado por dias enquanto o backend
+> mudava — reescrito para bater com o código de verdade.
+
+---
+
+## 1. Visão geral
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              ATLETAS (Público)                      │
-│         Leaderboard Read-Only (SPA)                │
-│          ↓ WebSocket (escuta mudanças)             │
-├─────────────────────────────────────────────────────┤
-│            OPERADORES (Autenticados)               │
-│   Painel Web: Cadastro + Súmulas + Gestão         │
-└─────────────────────────────────────────────────────┘
-           ↓ HTTP + WebSocket
-┌─────────────────────────────────────────────────────┐
-│        Backend Node.js + Express                   │
-│   - Autenticação (JWT)                            │
-│   - CRUD Equipes, Provas, Baterias               │
-│   - Cálculo de Pontuação Linear                   │
-│   - WebSocket (Broadcast Leaderboard)            │
-└─────────────────────────────────────────────────────┘
-           ↓ SQL
-┌─────────────────────────────────────────────────────┐
-│         PostgreSQL                                 │
-│   Equipes, Provas, Baterias, Resultados          │
-└─────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│  PÚBLICO (sem login)                                       │
+│  GET /api/leaderboard         + WebSocket (leaderboard_updated) │
+├───────────────────────────────────────────────────────────┤
+│  OPERADOR (JWT)                                             │
+│  CRUD de campeonatos, equipes, provas, baterias, resultados │
+└───────────────────────────────────────────────────────────┘
+                          │ HTTP + WebSocket
+┌───────────────────────────────────────────────────────────┐
+│  Backend — Node.js + Express (backend/src)                 │
+│                                                              │
+│  helmet + cors                                              │
+│    → rate limiting (express-rate-limit, por IP)             │
+│      → JWT (middleware/auth.js, nas rotas protegidas)       │
+│        → Joi (middleware/validate.js, nas rotas de escrita) │
+│          → controller (regra de negócio + acesso ao banco)  │
+│                                                              │
+│  server.js sobe o HTTP server + Socket.io (src/socket.js)   │
+└───────────────────────────────────────────────────────────┘
+                          │ SQL (pg, queries parametrizadas)
+┌───────────────────────────────────────────────────────────┐
+│  PostgreSQL 16 (Docker)                                     │
+│  10 tabelas + triggers PL/pgSQL para recálculo automático   │
+└───────────────────────────────────────────────────────────┘
 ```
 
-## 2. Schema do Banco de Dados
+Frontend: ainda não iniciado. Todo o backend abaixo é consumível hoje via
+Postman/Insomnia ou pelo `smoke-test-results.ps1` na raiz do repo.
 
-### Entidades Principais
+---
 
-```sql
--- OPERADORES (Usuários do sistema)
-TABLE users
-  id SERIAL PRIMARY KEY
-  email VARCHAR(255) UNIQUE NOT NULL
-  password_hash VARCHAR(255) NOT NULL
-  name VARCHAR(255)
-  created_at TIMESTAMP DEFAULT NOW()
+## 2. Camadas de validação (da entrada até o banco)
 
--- CAMPEONATO (Uma única instância por vez)
-TABLE championships
-  id SERIAL PRIMARY KEY
-  name VARCHAR(255) NOT NULL
-  date DATE NOT NULL
-  location VARCHAR(255)
-  created_by INT REFERENCES users(id)
-  created_at TIMESTAMP DEFAULT NOW()
+Um request de escrita passa por até três camadas antes de gravar algo,
+cada uma pega um tipo de erro diferente:
 
--- CATEGORIAS (Iniciante M/F, Scale M/F, RX Misto)
-TABLE categories
-  id SERIAL PRIMARY KEY
-  championship_id INT REFERENCES championships(id) ON DELETE CASCADE
-  name VARCHAR(50) NOT NULL -- "Iniciante M", "Iniciante F", "Scale M", "Scale F", "RX Misto"
-  gender VARCHAR(20) -- "masculino", "feminino", "misto"
-  level VARCHAR(20) -- "iniciante", "scale", "rx"
+1. **Rate limiting** (`middleware/rateLimiter.js`) — `authLimiter` (10
+   requisições / 15 min) nas rotas de login e registro, `apiLimiter` (300 /
+   15 min) no resto de `/api`. Desligado quando `NODE_ENV=test`.
+2. **Joi** (`middleware/validate.js` + `validations/schemas.js`) — checa
+   *forma*: campo obrigatório presente, tipo certo (número vs string), enum
+   válido (`scoring_type` só pode ser `time`/`reps`/`load`). Roda antes do
+   controller, então um corpo malformado nunca gasta uma query no banco.
+   Cobre `auth`, `championships`, `teams` e `workouts`. **Não cobre `results`
+   nem `heats`**: essas duas rotas têm validação própria em JS puro
+   (`validateScoreShape` em `resultController.js`, checagem de `lanes_per_heat`
+   em `heatController.js`) porque a regra ali já é testada por unidade
+   (`tests/unit/`) e trocar por Joi não agregaria — é uma escolha deliberada,
+   não um esquecimento.
+3. **Controller + Postgres** — regra de negócio que só o banco sabe responder:
+   "esse `category_id` existe?", "essa equipe já tem resultado nessa
+   bateria?". Como última linha de defesa, o próprio schema tem `CHECK`
+   constraints (`workouts_scoring_type_check`, `results_value_or_dnf`) que
+   seguram um dado inválido mesmo que alguém escreva direto no banco,
+   ignorando a API.
+
+---
+
+## 3. Schema do banco (pós migrations 001–003)
+
+```
+users
+  id, email (unique), password_hash, name
+
+championships
+  id, name, date, location, is_active, created_by → users
+
+categories                                    (5 por campeonato, fixas)
+  id, championship_id → championships, name, gender, level
   UNIQUE(championship_id, name)
 
--- EQUIPES
-TABLE teams
-  id SERIAL PRIMARY KEY
-  championship_id INT REFERENCES championships(id) ON DELETE CASCADE
-  name VARCHAR(255) NOT NULL
-  category_id INT REFERENCES categories(id) ON DELETE CASCADE
-  registered_at TIMESTAMP DEFAULT NOW()
-  -- Índice composto para rápido acesso
-  UNIQUE(championship_id, name)
+teams
+  id, championship_id → championships, category_id → categories,
+  name, registered_by → users
+  UNIQUE(championship_id, category_id, name)   -- por categoria, não só por campeonato
 
--- PROVAS/WORKOUTS
-TABLE workouts
-  id SERIAL PRIMARY KEY
-  championship_id INT REFERENCES championships(id) ON DELETE CASCADE
-  workout_number INT NOT NULL -- WOD 1, WOD 2, etc
-  description TEXT -- "5 rounds: 10 thrusters, 10 pull-ups"
-  type VARCHAR(50) -- "for_time", "amrap", "chipper", etc
-  created_at TIMESTAMP DEFAULT NOW()
+workouts
+  id, championship_id → championships, workout_number, name, type,
+  scoring_type ('time'|'reps'|'load', default 'time'), status, description,
+  created_by → users
   UNIQUE(championship_id, workout_number)
+  CHECK (scoring_type IN ('time','reps','load'))
 
--- BATERIAS (Heat/Grupos para cada prova)
-TABLE heats
-  id SERIAL PRIMARY KEY
-  workout_id INT REFERENCES workouts(id) ON DELETE CASCADE
-  heat_number INT NOT NULL -- Heat 1, 2, 3...
-  category_id INT REFERENCES categories(id) ON DELETE CASCADE
-  scheduled_time TIMESTAMP
+workout_variants                              (descrição por categoria)
+  id, workout_id → workouts, category_id → categories,
+  description, time_cap_seconds
+  UNIQUE(workout_id, category_id)
+
+heats
+  id, workout_id → workouts, heat_number, category_id → categories,
+  scheduled_time, status
   UNIQUE(workout_id, heat_number, category_id)
 
--- TIMES na Bateria (Associação)
-TABLE heat_teams
-  id SERIAL PRIMARY KEY
-  heat_id INT REFERENCES heats(id) ON DELETE CASCADE
-  team_id INT REFERENCES teams(id) ON DELETE CASCADE
-  lane_number INT -- Número de pista/posição na bateria
+heat_teams                                    (equipe ↔ raia numa bateria)
+  id, heat_id → heats, team_id → teams, lane_number
   UNIQUE(heat_id, team_id)
 
--- RESULTADOS (O que foi alcançado em cada prova)
-TABLE results
-  id SERIAL PRIMARY KEY
-  heat_team_id INT REFERENCES heat_teams(id) ON DELETE CASCADE
-  place INT -- Colocação: 1º, 2º, 3º...
-  score INT -- Pontos (igual à colocação no sistema linear)
-  time_or_reps VARCHAR(100) -- "12:34" ou "45 reps" (info visual)
-  notes TEXT -- Observações ("DNF", "No-Rep", etc)
-  recorded_at TIMESTAMP DEFAULT NOW()
-  UNIQUE(heat_team_id) -- Uma única posição por time/prova
+results
+  id, heat_team_id → heat_teams (UNIQUE — 1 resultado por raia),
+  place (calculado, nullable até o trigger rodar),
+  raw_value NUMERIC(10,2) (tempo em segundos, reps, ou carga — nunca texto),
+  did_not_finish BOOLEAN, recorded_by → users
+  CHECK (results_value_or_dnf): raw_value XOR did_not_finish, nunca os dois
+  nem nenhum dos dois
 
--- RANKINGS AGREGADOS (Cache para performance)
-TABLE team_standings
-  id SERIAL PRIMARY KEY
-  championship_id INT REFERENCES championships(id) ON DELETE CASCADE
-  team_id INT REFERENCES teams(id) ON DELETE CASCADE
-  total_score INT DEFAULT 0 -- Soma de todos os places
-  place INT -- Colocação final
-  workouts_completed INT DEFAULT 0
-  updated_at TIMESTAMP DEFAULT NOW()
+team_standings                                (cache — só leitura pela API)
+  id, championship_id → championships, category_id → categories,
+  team_id → teams, total_score, place, workouts_completed
   UNIQUE(championship_id, team_id)
 ```
 
-### Índices para Performance
+Índices relevantes: `team_standings(championship_id, place)`,
+`team_standings(category_id, place)`, `teams(category_id)`,
+`heats(workout_id, category_id)` — todos criados para as queries que o
+leaderboard e a geração de baterias realmente fazem, não especulativos.
 
-```sql
--- Queries de leaderboard
-CREATE INDEX idx_team_standings_championship_place 
-  ON team_standings(championship_id, place);
+### Funções e triggers PL/pgSQL
 
--- Queries de uma equipe em competição
-CREATE INDEX idx_results_team_championship 
-  ON results(team_id, championship_id);
+- `recalculate_placements(workout_id, category_id)` — usa `RANK()`, roda
+  depois de qualquer INSERT/UPDATE/DELETE em `results` daquela prova+categoria.
+- `recalculate_standings(championship_id)` — usa `ROW_NUMBER() PARTITION BY
+  category_id`, refaz o pódio de todas as categorias do campeonato.
+- `trigger_result_changed()` — dispara as duas funções acima em sequência, com
+  uma trava (`pg_trigger_depth() > 1`) contra recursão infinita, porque
+  `recalculate_placements` faz um `UPDATE` na própria tabela `results` que
+  tem o trigger.
 
--- Queries de uma bateria
-CREATE INDEX idx_heat_teams_heat 
-  ON heat_teams(heat_id);
+O detalhe de cada uma (por que `RANK` aqui e `ROW_NUMBER` ali, o bug de
+recursão encontrado em teste) está no README, não repetido aqui.
 
--- Queries de workouts por campeonato
-CREATE INDEX idx_workouts_championship 
-  ON workouts(championship_id);
-```
+---
 
-## 3. Fluxo de Dados
+## 4. Fluxos principais
 
-### Criação de Campeonato (Operador)
-```
-1. Operador cria campeonato (data, local, nome)
-2. Sistema cria 5 categorias:
-   - Iniciante Masculino
-   - Iniciante Feminino
-   - Scale Masculino
-   - Scale Feminino
-   - RX Misto
-3. Operador cadastra equipes (nome + categoria)
-```
+**Criar campeonato** → `POST /api/championships` insere o campeonato e, no
+mesmo request, as 5 categorias fixas (Iniciante M/F, Scale M/F, RX Misto) num
+único INSERT multi-valores.
 
-### Adição de Prova (Operador)
-```
-1. Operador cria WOD (descrição, tipo)
-2. Sistema gera automaticamente heats por categoria
-3. Sistema distribui equipes entre heats (round-robin ou manual)
-4. Operador confirma distribuição
-```
+**Gerar baterias** → `POST /api/workouts/:workout_id/heats` recebe
+`lanes_per_heat`, busca as equipes da categoria, distribui em baterias
+balanceadas (round-robin) dentro de uma transação (`BEGIN`/`COMMIT`), com
+trava contra apagar resultados já lançados sem `force: true`.
 
-### Lançamento de Resultados (Operador)
-```
-1. Durante a bateria: operador digita colocação (1º, 2º, 3º...)
-2. Sistema recalcula:
-   - Pontuação individual (place = score)
-   - Total acumulado da equipe
-   - Novo ranking agregado
-3. WebSocket notifica leaderboard público
-4. Leaderboard atualiza em tempo real
-```
+**Lançar resultado** → `POST /api/results` grava só `raw_value` ou
+`did_not_finish`; o trigger calcula `place`; `resultController` relê a linha
+(o `RETURNING` do INSERT original não veria o `place` novo, calculado depois
+pelo trigger) e chama `broadcastLeaderboard`, que busca o standings fresco do
+campeonato inteiro e emite `leaderboard_updated` via Socket.io para a sala
+`championship:<id>`.
 
-## 4. Sistema de Pontuação
+**Consultar leaderboard** → `GET /api/leaderboard?championship_id=&category_id=`
+lê só `team_standings` (nunca escreve nela). Campeonato com equipes mas sem
+nenhum resultado lançado devolve lista vazia com uma mensagem explicando o
+motivo, não um erro.
 
-### Fórmula Linear (CrossFit Open Style)
-```
-Para cada WOD:
-  Pontos = Colocação obtida (1º lugar = 1 ponto, 2º = 2, etc)
+---
 
-Ranking Final:
-  Total Score = Soma de todos os pontos em todos os WODs
-  Vencedor = Menor score (menos pontos acumulados)
-```
+## 5. Testes
 
-### Exemplo Prático
-```
-Campeonato com 3 WODs, Categoria Scale Feminino (4 equipes):
+Suíte Jest (`backend/tests/`) com dois níveis — unitário (funções puras, sem
+banco) e integração (banco Postgres real, `champy_championship_test`),
+incluindo um teste de integração que sobe um servidor HTTP real com
+Socket.io para validar o broadcast do leaderboard fim a fim. Detalhes de como
+rodar e o que ainda falta cobrir: [`backend/tests/README.md`](./backend/tests/README.md).
 
-WOD 1:
-  Equipe A: 1º lugar → 1 ponto
-  Equipe B: 2º lugar → 2 pontos
-  Equipe C: 3º lugar → 3 pontos
-  Equipe D: 4º lugar → 4 pontos
+---
 
-WOD 2:
-  Equipe A: 2º lugar → 2 pontos
-  Equipe B: 1º lugar → 1 ponto
-  Equipe C: 4º lugar → 4 pontos
-  Equipe D: 3º lugar → 3 pontos
+## 6. Segurança
 
-WOD 3:
-  Equipe A: 3º lugar → 3 pontos
-  Equipe B: 4º lugar → 4 pontos
-  Equipe C: 2º lugar → 2 pontos
-  Equipe D: 1º lugar → 1 ponto
+- Senhas: `bcryptjs` (10 rounds).
+- Sessão: JWT (`jsonwebtoken`), expiração 24h, payload mínimo (`id`, `email`,
+  `name`).
+- Segredos (`DB_PASSWORD`, `JWT_SECRET`) em `.env`, fora do controle de
+  versão (`.gitignore`); `.env.example` documenta as chaves sem valores reais.
+- `helmet` (headers HTTP) e `cors` restrito à origem configurada.
+- Rate limiting por IP (`express-rate-limit`) — ver seção 2.
+- Toda query ao Postgres é parametrizada (`pg` com `$1, $2...`), nunca
+  concatenação de string — SQL injection não é uma superfície de ataque válida
+  aqui.
+- Mensagem de erro de login idêntica para "email não existe" e "senha
+  errada" (401 `INVALID_CREDENTIALS`), para não vazar quais emails estão
+  cadastrados.
 
-RANKING FINAL (menor score vence):
-1. Equipe A: 1+2+3 = 6 pontos ✅ VENCEDOR
-2. Equipe B: 2+1+4 = 7 pontos
-3. Equipe D: 4+3+1 = 8 pontos
-4. Equipe C: 3+4+2 = 9 pontos
-```
+**Ainda não implementado** (honesto, não é checklist de marketing): logs de
+auditoria de quem lançou cada resultado (o campo `recorded_by` existe na
+tabela, mas não há endpoint para consultar histórico), CI automatizado
+rodando a suíte de testes a cada push, HTTPS/TLS (delegado ao ambiente de
+deploy, que ainda não existe).
 
-## 5. Estrutura de Pastas (Node.js + React)
+---
 
-```
-champy-clone/
-├── backend/
-│   ├── src/
-│   │   ├── controllers/
-│   │   │   ├── authController.js
-│   │   │   ├── teamController.js
-│   │   │   ├── workoutController.js
-│   │   │   ├── heatController.js
-│   │   │   └── resultController.js
-│   │   ├── models/
-│   │   │   ├── User.js
-│   │   │   ├── Championship.js
-│   │   │   ├── Team.js
-│   │   │   ├── Workout.js
-│   │   │   ├── Heat.js
-│   │   │   ├── Result.js
-│   │   │   └── TeamStanding.js
-│   │   ├── routes/
-│   │   │   ├── auth.js
-│   │   │   ├── teams.js
-│   │   │   ├── workouts.js
-│   │   │   ├── heats.js
-│   │   │   ├── results.js
-│   │   │   └── leaderboard.js
-│   │   ├── middleware/
-│   │   │   ├── auth.js (JWT validation)
-│   │   │   └── errorHandler.js
-│   │   ├── config/
-│   │   │   └── database.js (Pool PostgreSQL)
-│   │   ├── websocket/
-│   │   │   └── leaderboard.js (Socket.io events)
-│   │   └── app.js
-│   ├── migrations/
-│   │   ├── 001_initial_schema.sql
-│   │   └── 002_indexes.sql
-│   ├── package.json
-│   ├── .env.example
-│   └── server.js
-│
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── Dashboard.tsx
-│   │   │   ├── Teams.tsx (CRUD equipes)
-│   │   │   ├── Workouts.tsx (Gerenciar provas)
-│   │   │   ├── Heats.tsx (Distribuir baterias)
-│   │   │   └── ResultsEntry.tsx (Lançar súmulas)
-│   │   ├── components/
-│   │   │   ├── AuthGuard.tsx
-│   │   │   ├── Leaderboard.tsx
-│   │   │   └── ResultForm.tsx
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.ts
-│   │   ├── App.tsx
-│   │   └── index.tsx
-│   ├── package.json
-│   └── .env.example
-│
-├── leaderboard/ (Página pública - SPA simples)
-│   ├── src/
-│   │   ├── pages/
-│   │   │   └── Leaderboard.tsx
-│   │   ├── hooks/
-│   │   │   └── useWebSocket.ts
-│   │   └── App.tsx
-│   └── package.json
-│
-├── README.md (Principal)
-├── ARCHITECTURE.md (Este arquivo)
-└── docker-compose.yml (Opcional: local dev)
-```
+## 7. Próximos passos
 
-## 6. Tecnologias por Camada
-
-| Camada | Tecnologia | Razão |
-|--------|-----------|-------|
-| **Backend** | Node.js + Express | Leve, rápido, bom ecossistema |
-| **Autenticação** | JWT (jsonwebtoken) | Stateless, seguro, padrão |
-| **Real-time** | Socket.io | Fácil de implementar, funciona bem com Express |
-| **Banco de dados** | PostgreSQL | Relacional, confiável, array/JSON nativo |
-| **ORM** | Knex.js | Lightweight, bom para migrations |
-| **Frontend** | React + TypeScript | Type-safe, familiar pro seu stack |
-| **Validação** | Joi/Zod | Validação de entrada segura |
-| **Segurança** | bcryptjs, helmet, cors | Best practices |
-
-## 7. Decisões Arquiteturais Importantes
-
-### ✅ Por quê PostgreSQL em vez de MongoDB?
-- Relações entre equipes → provas → resultados são complexas
-- Cálculos de agregação (soma de pontos) são mais eficientes em SQL
-- UNIQUE constraints garantem integridade (uma equipe não aparece 2x na mesma bateria)
-- JSON nativo do PG se você precisar flexibilidade depois
-
-### ✅ Por quê Socket.io em vez de polling?
-- Até 50 usuários simultâneos = WebSocket é apropriado
-- Leaderboard fica "vivo" sem delay
-- Experiência muito melhor para público acompanhando
-
-### ✅ Por quê table `team_standings` separada?
-- Leaderboard é consultado frequentemente (toda mudança de resultado)
-- Recalcular soma todas as vezes é ineficiente
-- Cache desnormalizado + trigger no banco mantém sincronizado
-
-### ✅ Autenticação only para operadores
-- Leaderboard é pública → nenhuma senha necessária
-- JWT protege os endpoints de escrita (cadastro, resultado)
-- Simples + seguro para seu escopo
-
-## 8. Segurança Implementada
-
-```
-[ ] Senhas hasheadas com bcryptjs
-[ ] JWT com expiração (1 dia para operador)
-[ ] CORS restrito ao seu domínio
-[ ] Helmet.js (headers de segurança)
-[ ] SQL injection prevenido (queries parametrizadas com Knex)
-[ ] Rate limiting nas rotas de auth
-[ ] Validação de entrada em todos os endpoints
-[ ] Logs de auditoria (quem fez cada lançamento de resultado)
-```
-
-## 9. Próximos Passos
-
-1. **Criar repositório GitHub** com estrutura
-2. **Implementar backend** (migrations + CRUD básico)
-3. **Implementar painel operacional** (React)
-4. **Integrar WebSocket** no leaderboard
-5. **Deploy** (Railway/DigitalOcean/Vercel)
-6. **Documentar no README** decisões e como rodar
+1. Frontend React (painel do operador + leaderboard público) — 0% feito.
+2. Deploy (Railway ou similar) com Postgres gerenciado.
+3. CI (GitHub Actions): Postgres em container de serviço, rodar migrations,
+   `npm test` a cada push/PR.
+4. Teste de integração dedicado para `heatController.generate` (hoje só
+   exercitado indiretamente por outros testes, sem asserções próprias sobre
+   a distribuição balanceada nem sobre a trava de `force`).

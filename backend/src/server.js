@@ -1,7 +1,7 @@
 // src/server.js
 const http = require('http');
-const { Server } = require('socket.io');
 const app = require('./app');
+const { attachSocket } = require('./socket');
 const { pool } = require('./config/database');
 
 require('dotenv').config();
@@ -10,44 +10,15 @@ const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 /**
- * Cria servidor HTTP com Socket.io para real-time leaderboard
+ * Cria servidor HTTP com Socket.io para real-time leaderboard.
+ * A montagem do socket em si (conexão, sala por campeonato, broadcast) vive
+ * em src/socket.js — separado daqui justamente para poder ser testado
+ * (ver tests/integration/websocket.test.js).
  */
 const server = http.createServer(app);
+const { io, broadcastLeaderboardUpdate } = attachSocket(server);
 
-const io = new Server(server, {
-  cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
-});
-
-/**
- * WebSocket Connection Handling
- */
-io.on('connection', (socket) => {
-  console.log(`Client connected: ${socket.id}`);
-
-  // Cliente se inscreve em atualizações de um campeonato
-  socket.on('subscribe_championship', (championshipId) => {
-    socket.join(`championship:${championshipId}`);
-    console.log(`Client ${socket.id} subscribed to championship ${championshipId}`);
-  });
-
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
-  });
-});
-
-/**
- * Função para broadcast de atualização de leaderboard
- * Será chamada quando um resultado é registrado
- */
-const broadcastLeaderboardUpdate = (championshipId, data) => {
-  io.to(`championship:${championshipId}`).emit('leaderboard_updated', data);
-};
-
-// Exporta io e broadcast para uso em rotas
+// Exporta io e broadcast para uso em rotas (resultController lê daqui).
 app.locals.io = io;
 app.locals.broadcastLeaderboardUpdate = broadcastLeaderboardUpdate;
 

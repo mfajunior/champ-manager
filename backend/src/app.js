@@ -3,6 +3,8 @@ const cors = require('cors');
 const helmet = require('helmet');
 require('dotenv').config();
 
+const { apiLimiter } = require('./middleware/rateLimiter');
+
 const app = express();
 
 // ==================== MIDDLEWARE ====================
@@ -13,6 +15,10 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true,
 }));
+
+// Rate limiting geral da API — desligado em teste (ver middleware/rateLimiter.js).
+// authLimiter, mais restrito, é aplicado só em /api/auth (routes/auth.js).
+app.use('/api', apiLimiter);
 
 // Body parsing
 app.use(express.json());

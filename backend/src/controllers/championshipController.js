@@ -19,16 +19,8 @@ const DEFAULT_CATEGORIES = [
 // POST /api/championships  (protegido)
 exports.create = async (req, res, next) => {
   try {
+    // Formato do corpo já validado pelo middleware `validate(schemas.championshipCreate)`.
     const { name, date, location } = req.body;
-
-    if (!name || !date || !location) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Nome, data e local são obrigatórios',
-        },
-      });
-    }
 
     const championship = await queryOne(
       `INSERT INTO championships (name, date, location, created_by)

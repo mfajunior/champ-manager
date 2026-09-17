@@ -23,26 +23,11 @@ exports.ALLOWED_SCORING_TYPES = ALLOWED_SCORING_TYPES;
 // body: { championship_id, workout_number, name, type, scoring_type? }
 exports.create = async (req, res, next) => {
   try {
+    // Presença dos obrigatórios e enum de scoring_type já validados pelo
+    // middleware `validate(schemas.workoutCreate)` na rota. O que sobra aqui
+    // é regra de negócio (default do campo, unicidade, FK) — não validação de forma.
     const { championship_id, workout_number, name, type, scoring_type } = req.body;
-
-    if (!championship_id || !workout_number || !name) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'championship_id, workout_number e name são obrigatórios',
-        },
-      });
-    }
-
     const scoringType = scoring_type || 'time';
-    if (!ALLOWED_SCORING_TYPES.includes(scoringType)) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: `scoring_type deve ser um de: ${ALLOWED_SCORING_TYPES.join(', ')}`,
-        },
-      });
-    }
 
     const championship = await queryOne(
       'SELECT id FROM championships WHERE id = $1',
@@ -176,16 +161,9 @@ exports.getById = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
+    // Enum de scoring_type e "ao menos um campo" já validados pelo middleware
+    // `validate(schemas.workoutUpdate)` na rota.
     const { workout_number, name, type, scoring_type, status, description } = req.body;
-
-    if (scoring_type !== undefined && !ALLOWED_SCORING_TYPES.includes(scoring_type)) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: `scoring_type deve ser um de: ${ALLOWED_SCORING_TYPES.join(', ')}`,
-        },
-      });
-    }
 
     const workout = await queryOne(
       'SELECT id, championship_id FROM workouts WHERE id = $1',
