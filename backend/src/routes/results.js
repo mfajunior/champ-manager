@@ -10,6 +10,10 @@ router.post('/', authMiddleware, resultController.create);
 // category_id é opcional: sem ele, lista a prova inteira
 router.get('/', resultController.getByWorkout);
 
+// GET /api/results/heat-teams/:heat_team_id/history - Auditoria de uma raia (protegido)
+// Quem lançou, corrigiu ou removeu o resultado dessa raia, e quando.
+router.get('/heat-teams/:heat_team_id/history', authMiddleware, resultController.getHistory);
+
 // PUT /api/results/:id - Corrigir um resultado lançado (protegido)
 router.put('/:id', authMiddleware, resultController.update);
 
