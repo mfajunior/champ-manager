@@ -15,6 +15,10 @@ const { query, queryOne, queryAll } = require('../config/database');
 
 const ALLOWED_SCORING_TYPES = ['time', 'reps', 'load'];
 
+// Exportada à parte para dar pra testar sem precisar de banco
+// (tests/unit/workoutController.test.js).
+exports.ALLOWED_SCORING_TYPES = ALLOWED_SCORING_TYPES;
+
 // POST /api/workouts  (protegido)
 // body: { championship_id, workout_number, name, type, scoring_type? }
 exports.create = async (req, res, next) => {

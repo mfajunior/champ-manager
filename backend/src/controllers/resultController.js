@@ -26,6 +26,10 @@ const validateScoreShape = (rawValue, didNotFinish) => {
   return null;
 };
 
+// Exportada à parte para dar pra testar sem precisar de banco nem de req/res
+// (tests/unit/resultController.test.js).
+exports.validateScoreShape = validateScoreShape;
+
 /**
  * Avisa quem está ouvindo o leaderboard daquele campeonato via WebSocket.
  *

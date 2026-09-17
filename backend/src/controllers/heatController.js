@@ -28,6 +28,10 @@ const distributeTeams = (teams, numHeats) => {
   return buckets;
 };
 
+// Exportada à parte para dar pra testar sem precisar de banco
+// (tests/unit/heatController.test.js).
+exports.distributeTeams = distributeTeams;
+
 // POST /api/workouts/:workout_id/heats  (protegido)
 // body: { category_id, lanes_per_heat, start_time?, interval_minutes?, force? }
 exports.generate = async (req, res, next) => {
