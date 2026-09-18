@@ -8,6 +8,35 @@ const { apiLimiter } = require('./middleware/rateLimiter');
 
 const app = express();
 
+// Render (e a maioria dos PaaS — Railway, Heroku, Fly.io) coloca um proxy na
+// frente da aplicação: toda requisição chega internamente vinda do proxy,
+// com o IP real do visitante só no header X-Forwarded-For. Sem "trust
+// proxy", o Express ignora esse header — req.ip vira sempre o IP do proxy
+// para QUALQUER visitante. Na prática (testado direto): o express-rate-limit
+// não quebra a requisição por causa disso, mas os logs enchem de
+// ValidationError a cada request, e o pior — o limite de tentativas de
+// login passa a ser um balde só, compartilhado por todo mundo que loga
+// (porque todo mundo "é" o mesmo IP aparente). Ou seja: um único
+// atacante errando a senha 10 vezes tranca o login de qualquer pessoa por
+// 15 minutos, não só o dele.
+//
+// A correção óbvia seria ligar "trust proxy" sempre — mas SÓ é seguro fazer
+// isso quando o Express não pode ser alcançado de nenhum outro jeito a não
+// ser através desse proxy confiável. Isso é verdade no Render (a rede deles
+// isola o container; só chega tráfego vindo do proxy deles). NÃO é verdade
+// rodando local ou exposto na rede Wi-Fi (como fizemos para acessar pelo
+// celular): ali o Express está diretamente alcançável, e ligar "trust
+// proxy" deixaria qualquer aparelho na mesma rede forjar esse header e
+// furar o rate limit do login sozinho — testei isso também: com "trust
+// proxy" sempre ligado, um curl com X-Forwarded-For diferente a cada
+// tentativa passa batido pelo limite. Por isso a checagem por NODE_ENV: só
+// confia no header quando NODE_ENV=production (valor que só é setado no
+// Render — dev e a rede local continuam com o Express usando o IP real da
+// conexão, sem depender de header nenhum).
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // ==================== MIDDLEWARE ====================
 
 // Security
