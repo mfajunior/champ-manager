@@ -23,7 +23,7 @@ Uma plataforma de código aberto para gerenciar campeonatos de CrossFit: cadastr
 
 ### Para Atletas/Público (Sem Login)
 - ✅ **Leaderboard Público**: consulta de ranking via API, filtrável por categoria
-- ✅ **Updates ao Vivo (WebSocket)**: toda vez que um resultado é lançado, corrigido ou apagado, `resultController` busca o leaderboard fresco e emite `leaderboard_updated` para quem estiver inscrito naquele campeonato — sem precisar de refresh ou novo GET. Validado de ponta a ponta com um cliente de teste (`backend/test-websocket.js`).
+- ✅ **Updates ao Vivo (WebSocket)**: toda vez que um resultado é lançado, corrigido ou apagado, `resultController` busca o leaderboard fresco e emite `leaderboard_updated` para quem estiver inscrito naquele campeonato — sem precisar de refresh ou novo GET. Coberto por `tests/integration/websocket.test.js` (cliente real de `socket.io-client`) e, manualmente, por `backend/test-websocket.js`; no frontend, validado de ponta a ponta com o placar público atualizando sozinho (ver seção Testes).
 
 ---
 
@@ -37,7 +37,7 @@ Frontend (React + Vite)   →  Backend (Node.js)       →  Database (PostgreSQL
 ├─ Leaderboard Público    ├─ JWT Authentication      ├─ Triggers auto-recalc
 └─ TanStack Query +       ├─ Socket.io (broadcast    └─ Índices otimizados
    Socket.io-client       │  ligado ao resultController)
-                          └─ Validação manual por controller
+                          └─ Validação com Joi por rota
 ```
 
 ### Por Quê Estas Escolhas?
@@ -150,9 +150,9 @@ championships (1 campeonato ativo por vez)
 4. DURANTE A PROVA: OPERADOR lança que "Guerreiros RJ" fez 5:32 (raw_value=332)
    └─ Trigger calcula o place daquela prova via RANK()
    └─ Trigger refaz o ranking geral do campeonato via ROW_NUMBER()
-   └─ (leaderboard fica correto na próxima consulta; broadcast em tempo real ainda não está ligado)
+   └─ resultController busca o leaderboard fresco e emite leaderboard_updated via WebSocket
 
-5. ATLETAS consultam o leaderboard e veem "Guerreiros RJ" na posição atualizada
+5. ATLETAS veem "Guerreiros RJ" subir de posição no placar público na hora, sem dar refresh
 ```
 
 ---
@@ -167,8 +167,8 @@ championships (1 campeonato ativo por vez)
 ### 1. Clonar e configurar variáveis de ambiente
 
 ```bash
-git clone https://github.com/mfajunior/champy-manager.git
-cd champy-manager
+git clone https://github.com/mfajunior/champ-manager.git
+cd champ-manager
 
 # .env da raiz — lido pelo docker-compose.yml (banco + backend em container)
 cp .env.example .env
@@ -269,24 +269,44 @@ Colocação de cada prova e ranking final são recalculados automaticamente pelo
 ### Implementada
 - ✅ Senhas hasheadas com bcryptjs
 - ✅ JWT com expiração (24h) — `authController` e `middleware/auth.js` compartilham a mesma função de geração de token (corrigido um bug em que cada um assinava o token de um jeito diferente, deixando `req.user.id` sempre `undefined` nas rotas protegidas)
-- ✅ CORS restrito por variável de ambiente (`CORS_ORIGIN`)
+- ✅ CORS restrito por variável de ambiente (`CORS_ORIGIN`) — aceita múltiplas origens separadas por vírgula (`config/cors.js`), necessário pra abrir o frontend pela rede local sem liberar CORS pra qualquer origem
 - ✅ Helmet.js (headers HTTP)
 - ✅ SQL Injection prevenido (queries sempre parametrizadas, nunca concatenação de string)
 - ✅ Segredos fora do código-fonte: `docker-compose.yml` exige `DB_PASSWORD`, `JWT_SECRET` etc. via `.env` não versionado. Antes eram valores fixos direto no arquivo versionado — foram rotacionados ao corrigir isso, porque só remover do arquivo não invalida um segredo que já esteve no histórico do git
-- ✅ Validação de entrada manual em cada controller (campos obrigatórios, tipos e regras de negócio checados antes de tocar no banco)
+- ✅ Validação de entrada com Joi (`middleware/validate.js` + `validations/schemas.js`) — um schema por rota de escrita, checado antes do controller. Substituiu a validação manual campo a campo (`if (!x) return res.status(400)...`), que não pegava tipo errado — ex.: um número mandado como texto só quebraria lá na frente, na query SQL, com um erro de banco confuso em vez de um 400 claro
+- ✅ Rate limiting (`express-rate-limit`, `middleware/rateLimiter.js`) — limite baixo (10 tentativas / 15 min, por IP) em `/api/auth/login` e `/api/auth/register`, contra força bruta e enumeração de e-mail; limite mais alto (300 / 15 min) no resto da API, contra abuso grosseiro sem incomodar uso normal
 
-### Não implementada (apesar de aparecer no `package.json`)
-- ❌ **Joi**: está instalado como dependência, mas nenhum controller o importa — toda validação hoje é feita "na mão" com `if`/mensagens de erro custom. Fica como decisão pendente: ou passa a ser usado de verdade, ou é removido do `package.json` — do jeito que está, é peso morto que sugere uma camada de schema validation que não existe.
-- ❌ **Rate limiting em endpoints de auth**: não há nenhum middleware de rate limit no projeto.
-- ❌ 2FA (MFA), OAuth2, auditoria detalhada, criptografia de dados sensíveis — fora de escopo, sem pretensão de implementar.
+### Não implementada
+- ❌ 2FA (MFA), OAuth2, criptografia de dados sensíveis em repouso — fora de escopo, sem pretensão de implementar.
+- ❌ Auditoria geral de acesso (quem logou, quem acessou o quê). Existe um audit log, mas escopado a resultados de prova (`result_audit_log`, migration 004) — registra quem lançou/corrigiu/apagou cada resultado, não um trilha de acessos do sistema como um todo.
 
 ---
 
 ## 🧪 Testes
 
-Não há testes unitários ainda: `jest` e `supertest` estão como devDependencies, mas nenhum arquivo de teste foi escrito — `npm test` roda o Jest contra uma suíte vazia.
+### Backend
 
-O que existe hoje é validação de integração via PowerShell, rodando contra o backend local de verdade (banco incluso):
+88 testes automatizados (Jest + Supertest), rodando contra um PostgreSQL real — não mock —,
+localmente e no CI a cada push/PR pra `main` (badge no topo deste README,
+workflow em `.github/workflows/backend-tests.yml`):
+
+```bash
+cd backend
+npm test               # roda a suíte inteira
+npm run test:coverage  # com relatório de cobertura
+```
+
+```
+backend/tests/
+├── integration/   # auth, campeonatos, equipes, provas, baterias, resultados,
+│                  # leaderboard, websocket, histórico de auditoria
+└── unit/          # heatController, resultController, workoutController
+```
+
+Os scripts PowerShell (`smoke-test*.ps1`, na raiz do projeto) continuam no repositório como
+validação manual complementar — foram os primeiros testes escritos pro projeto, antes da suíte
+Jest, e ainda servem pra checar o fluxo contra um servidor já rodando, sem precisar subir e derrubar
+o app a cada execução como o Jest faz:
 
 ```powershell
 .\smoke-test.ps1              # auth, campeonatos, equipes, provas, baterias
@@ -294,7 +314,14 @@ O que existe hoje é validação de integração via PowerShell, rodando contra 
 .\smoke-test-leaderboard.ps1  # scoring_type e leaderboard por categoria
 ```
 
-Cada script cria seu próprio campeonato de teste (não reaproveita dados) e imprime OK/FALHA por etapa. Não substitui testes automatizados em CI, mas cobre de ponta a ponta o fluxo que mais importa neste projeto — é a próxima melhoria de qualidade planejada.
+### Frontend
+
+Sem suíte automatizada ainda. A verificação até aqui foi um fluxo E2E manual com Playwright,
+ponta a ponta contra o backend real: cadastro → login → campeonato → equipes → prova → baterias →
+lançamento de resultado → placar público, numa aba separada e sem login, atualizando sozinho via
+WebSocket quando um resultado é corrigido. Documentado com detalhe em `frontend/README.md`
+("O que foi testado"). Testar componente isolado com Testing Library é o próximo passo — ver
+Roadmap.
 
 ---
 
@@ -325,12 +352,18 @@ NODE_ENV=production
 CORS_ORIGIN=https://seu-dominio.com
 ```
 
-### Frontend (Vercel, Netlify) — quando existir
+### Frontend (Vercel, Netlify)
 
 ```bash
+cd frontend
 npm run build
-# Deploy pasta ./build
+# Deploy da pasta ./frontend/dist (saída padrão do Vite — não "build", como em
+# projetos criados com Create React App)
 ```
+
+Lembre de configurar `VITE_API_URL` apontando pro backend publicado (não `localhost`) nas variáveis
+de ambiente da plataforma de deploy, e adicionar a origem final do frontend em `CORS_ORIGIN` no
+backend.
 
 ---
 
@@ -386,9 +419,9 @@ Desenvolvido como projeto portfolio para posição de desenvolvedor júnior.
 
 ## 📞 Suporte
 
-Encontrou um bug? Abra uma [issue](https://github.com/mfajunior/champy-manager/issues).
+Encontrou um bug? Abra uma [issue](https://github.com/mfajunior/champ-manager/issues).
 
-Dúvidas? Cria uma [discussion](https://github.com/mfajunior/champy-manager/discussions).
+Dúvidas? Cria uma [discussion](https://github.com/mfajunior/champ-manager/discussions).
 
 ---
 
