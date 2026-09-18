@@ -1,5 +1,6 @@
 // src/socket.js
 const { Server } = require('socket.io');
+const { corsOriginChecker } = require('./config/cors');
 
 /**
  * A montagem do Socket.io morava inteira dentro de server.js — o que
@@ -18,7 +19,7 @@ const { Server } = require('socket.io');
 const attachSocket = (server) => {
   const io = new Server(server, {
     cors: {
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+      origin: corsOriginChecker,
       methods: ['GET', 'POST'],
       credentials: true,
     },

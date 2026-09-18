@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { corsOriginChecker } = require('./config/cors');
 const helmet = require('helmet');
 require('dotenv').config();
 
@@ -12,7 +13,7 @@ const app = express();
 // Security
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: corsOriginChecker,
   credentials: true,
 }));
 
