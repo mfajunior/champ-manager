@@ -5,6 +5,23 @@ require('dotenv').config();
 const { Pool } = pg;
 
 /**
+ * DB_SSL=true liga TLS na conexão com o Postgres. Precisa estar ligado para
+ * bancos hospedados (Neon, Render Postgres, etc.) — eles recusam conexão sem
+ * criptografia. Fica desligado por padrão porque o Postgres local (Docker)
+ * não expõe certificado nenhum: ligar TLS ali só quebraria a conexão em dev.
+ *
+ * rejectUnauthorized fica true (o padrão): a Neon usa certificado de uma CA
+ * pública, então dá pra validar a cadeia normalmente — testei local com
+ * rejectUnauthorized: true contra um Postgres de certificado autoassinado e
+ * a conexão é corretamente recusada ("self-signed certificate"), confirmando
+ * que a verificação está de fato ativa, não é só um parâmetro decorativo.
+ * Desligar essa verificação (rejectUnauthorized: false, comum em tutorial
+ * antigo de Heroku Postgres) abriria a conexão a um ataque
+ * man-in-the-middle sem necessidade nenhuma aqui.
+ */
+const useSSL = process.env.DB_SSL === 'true';
+
+/**
  * Pool de conexões PostgreSQL
  * Reutiliza conexões para melhor performance
  */
@@ -17,6 +34,7 @@ const pool = new Pool({
   max: 20, // máximo de conexões simultâneas
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  ssl: useSSL ? { rejectUnauthorized: true } : false,
 });
 
 pool.on('error', (err) => {
