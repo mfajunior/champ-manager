@@ -32,11 +32,11 @@ Uma plataforma de código aberto para gerenciar campeonatos de CrossFit: cadastr
 ### Stack Técnico
 
 ```
-Frontend (React)          →  Backend (Node.js)       →  Database (PostgreSQL)
+Frontend (React + Vite)   →  Backend (Node.js)       →  Database (PostgreSQL)
 ├─ Painel Operacional     ├─ Express.js              ├─ 10 tabelas normalizadas
 ├─ Leaderboard Público    ├─ JWT Authentication      ├─ Triggers auto-recalc
-└─ (ainda não iniciado)   ├─ Socket.io (broadcast    └─ Índices otimizados
-                          │  ligado ao resultController)
+└─ TanStack Query +       ├─ Socket.io (broadcast    └─ Índices otimizados
+   Socket.io-client       │  ligado ao resultController)
                           └─ Validação manual por controller
 ```
 
@@ -161,37 +161,78 @@ championships (1 campeonato ativo por vez)
 
 ### Pré-requisitos
 - Node.js 18+
-- PostgreSQL 13+
 - Docker + Docker Compose
+- npm
 
-### Instalação
+### 1. Clonar e configurar variáveis de ambiente
 
 ```bash
-# Clone o repositório
 git clone https://github.com/mfajunior/champy-manager.git
 cd champy-manager
 
-# Configure variáveis de ambiente (nunca versione o .env real)
+# .env da raiz — lido pelo docker-compose.yml (banco + backend em container)
 cp .env.example .env
 # Edite .env com suas credenciais e gere um JWT_SECRET novo:
-#   openssl rand -hex 32
+#   node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
 
-# Suba banco + backend
+### 2. Backend + banco de dados
+
+```bash
+# Sobe Postgres e o backend
 docker compose up -d
 
-# Rode as migrations dentro do container do banco
+# Primeira vez rodando o projeto: aplica as migrations, na ordem
 docker compose cp backend/migrations/. postgres:/tmp/migrations
 docker compose exec postgres sh -c 'for f in /tmp/migrations/*.sql; do psql -U $POSTGRES_USER -d $POSTGRES_DB -f "$f"; done'
 
 docker compose restart backend
 ```
 
+Confirma que subiu: `http://localhost:5000/health` deve responder `{"status":"ok",...}`.
+
+Para desenvolver o backend com hot-reload, sem rebuildar o container a cada mudança, é possível também
+subir só o banco (`docker compose up -d postgres`) e rodar o backend direto no host com
+`cd backend && npm install && npm run dev` — nesse caso ele lê `backend/.env`
+(copie de `backend/.env.example`), não o `.env` da raiz.
+
+### 3. Frontend
+
+O frontend é um projeto Vite à parte, roda fora do Docker:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env    # aponta para http://localhost:5000 por padrão
+npm run dev             # abre em http://localhost:3000
+```
+
+Não existe usuário nem campeonato pré-cadastrado — crie sua conta pela própria tela (`/register`).
+
+### Acessando pelo celular (mesma rede Wi-Fi)
+
+O Vite já escuta em `0.0.0.0` (não só `localhost`), então dá para abrir o painel e o placar de
+qualquer aparelho na mesma rede:
+
+1. Descubra o IP local do seu PC (Windows: `ipconfig`, procure "Endereço IPv4" no adaptador Wi-Fi —
+   algo como `192.168.x.x`)
+2. Em `frontend/.env`, mude `VITE_API_URL` para `http://<seu-IP>:5000` — o celular executa esse JS
+   localmente, então "localhost" ali apontaria para o próprio celular, não para o seu PC
+3. No `.env` da raiz, acrescente essa origem em `CORS_ORIGIN`, separada por vírgula:
+   `CORS_ORIGIN=http://localhost:3000,http://<seu-IP>:3000` — sem isso o navegador do celular
+   bloqueia a resposta da API por CORS
+4. Reinicie o backend (`docker compose restart backend`) e o `npm run dev` do frontend — os dois só
+   leem o `.env` na inicialização
+5. No celular, na mesma rede Wi-Fi, acesse `http://<seu-IP>:3000`
+
+Se não abrir mesmo com o IP certo, o suspeito nº 1 é o Firewall do Windows bloqueando conexão de
+entrada nas portas 3000/5000 vindas de outro aparelho.
+
 ### Acesse
 
+- **Frontend**: http://localhost:3000
 - **API Health**: http://localhost:5000/health
 - **Endpoints**: veja `ARCHITECTURE.md` para o schema completo e `smoke-test*.ps1` na raiz do projeto para exemplos reais de cada chamada
-
-O frontend (painel operacional + leaderboard) ainda não foi iniciado — hoje o projeto é só a API.
 
 ---
 
@@ -259,7 +300,10 @@ Cada script cria seu próprio campeonato de teste (não reaproveita dados) e imp
 
 ## 📱 Responsividade
 
-O frontend ainda não foi iniciado, então não há nada a avaliar aqui hoje.
+Não testado em telas de celular/tablet ainda — o desenvolvimento até aqui foi majoritariamente em
+desktop (ver `frontend/README.md`, seção "o que ainda falta"). É o próximo passo antes de considerar
+o frontend pronto para uso real num campeonato, onde o operador frequentemente lança resultado pelo
+celular, na beira do tatame.
 
 ---
 
@@ -298,11 +342,10 @@ npm run build
 - ✅ Lançamento de Resultados (colocação sempre calculada, com empate e DNF)
 - ✅ Leaderboard por categoria (consulta via API)
 - ✅ Leaderboard em tempo real via WebSocket, validado com cliente de teste
+- ✅ Frontend em React (painel operacional + leaderboard público), com acesso pela rede local
 
 ### v0.2 (Próximo)
-- ⏳ Testes automatizados (Jest) substituindo os smoke tests manuais em PowerShell
-- ⏳ Decidir entre usar Joi de verdade ou remover a dependência não utilizada
-- ⏳ Frontend em React (painel operacional + leaderboard público)
+- ⏳ Testes automatizados no frontend (hoje a verificação é um fluxo E2E manual — ver `frontend/README.md`)
 - ⏳ Exportar resultados (CSV/PDF)
 - ⏳ Histórico de campeonatos
 
