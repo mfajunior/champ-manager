@@ -50,6 +50,16 @@ ON CONFLICT (workout_id, category_id) DO NOTHING;
 
 ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_championship_id_name_key;
 
+-- DROP + ADD, não só ADD: sem o DROP IF EXISTS daqui, rodar esta migration
+-- uma segunda vez (banco já migrado) falha com "constraint already exists" —
+-- e como todo o arquivo está dentro de um BEGIN/COMMIT só, esse erro reverte
+-- também o CREATE OR REPLACE FUNCTION recalculate_standings mais abaixo,
+-- mesmo ele tendo rodado sem problema. Resultado: a função volta pra versão
+-- antiga (migration 001, sem PARTITION BY category_id) só porque um ADD
+-- CONSTRAINT no meio do arquivo não era idempotente. Bug real, encontrado
+-- rodando scripts/migrate.js duas vezes seguidas contra o mesmo banco.
+ALTER TABLE teams DROP CONSTRAINT IF EXISTS teams_championship_category_name_key;
+
 ALTER TABLE teams ADD CONSTRAINT teams_championship_category_name_key
   UNIQUE (championship_id, category_id, name);
 
