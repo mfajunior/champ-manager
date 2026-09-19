@@ -142,6 +142,68 @@ exports.getById = async (req, res, next) => {
   }
 };
 
+// GET /api/teams/:id/results  (público)
+// Uma linha por prova do campeonato, na ordem do workout_number — inclusive
+// as que essa equipe ainda não correu. Sem resultado lançado (nenhuma linha
+// em `results` para o heat_team_id dela naquela prova) o campo `raw_value`
+// e `place` voltam null e `did_not_finish` volta false; quem exibe decide
+// como marcar "ainda não realizada" — aqui é decisão de UI, não de dado.
+exports.getResults = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const team = await queryOne(
+      'SELECT id, championship_id, category_id, name FROM teams WHERE id = $1',
+      [id]
+    );
+
+    if (!team) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Equipe não encontrada' },
+      });
+    }
+
+    // Uma equipe está em no máximo uma bateria por prova — mas uma prova pode
+    // ter VÁRIAS baterias (uma categoria grande pode precisar de mais de uma
+    // bateria pra caber, e agora baterias também misturam categorias — ver
+    // migration 005). Por isso o filtro pela equipe precisa acontecer ANTES
+    // de juntar com workouts, numa subquery: filtrar heats por
+    // "h.workout_id = w.id" direto (sem afunilar por categoria, que a
+    // bateria não tem mais) faria essa equipe casar com TODAS as baterias
+    // daquela prova, gerando uma linha fantasma (h presente, resultado nulo)
+    // pra cada bateria em que ela NÃO está — não só pra prova em que a
+    // categoria dela nunca coube numa bateria só.
+    const workouts = await queryAll(
+      `SELECT
+         w.id AS workout_id,
+         w.workout_number,
+         w.name AS workout_name,
+         w.scoring_type,
+         r.raw_value,
+         r.did_not_finish,
+         r.place
+       FROM workouts w
+       LEFT JOIN (
+         SELECT h.workout_id, ht.id AS heat_team_id
+         FROM heat_teams ht
+         JOIN heats h ON h.id = ht.heat_id
+         WHERE ht.team_id = $2
+       ) team_heat ON team_heat.workout_id = w.id
+       LEFT JOIN results r ON r.heat_team_id = team_heat.heat_team_id
+       WHERE w.championship_id = $1
+       ORDER BY w.workout_number ASC`,
+      [team.championship_id, team.id]
+    );
+
+    res.status(200).json({
+      data: { team: { id: team.id, name: team.name }, workouts },
+      meta: { message: 'Resultados da equipe recuperados com sucesso', total: workouts.length },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // PUT /api/teams/:id  (protegido)
 // body: { name?, category_id? }
 exports.update = async (req, res, next) => {

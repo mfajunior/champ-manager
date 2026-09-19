@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../../src/app');
+const { createTestUser } = require('../helpers/testAuth');
 const { pool } = require('../../src/config/database');
 
 /**
@@ -19,10 +20,7 @@ describe('Teams (integração com banco real)', () => {
 
   beforeAll(async () => {
     const email = `jest-teams-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
-    const registro = await request(app)
-      .post('/api/auth/register')
-      .send({ email, password: 'jest12345', name: 'Jest Teams' });
-    token = registro.body.data.token;
+    token = (await createTestUser({ email, name: 'Jest Teams' })).token;
 
     const campeonato = await request(app)
       .post('/api/championships')

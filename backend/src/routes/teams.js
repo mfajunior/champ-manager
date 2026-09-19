@@ -15,6 +15,11 @@ router.get('/', teamController.getAll);
 // GET /api/teams/:id - Detalhe da equipe (público)
 router.get('/:id', teamController.getById);
 
+// GET /api/teams/:id/results - Resultado da equipe em cada prova do campeonato,
+// incluindo as que ainda não rolou (público) — usado no clique da equipe no
+// leaderboard.
+router.get('/:id/results', teamController.getResults);
+
 // PUT /api/teams/:id - Atualizar equipe (protegido)
 router.put('/:id', authMiddleware, validate(schemas.teamUpdate), teamController.update);
 
