@@ -14,9 +14,11 @@ export function useHeats(workoutId: number) {
   });
 }
 
+// category_id/lanes_per_heat saíram daqui: raias virou parâmetro global do
+// campeonato (championship.lanes_per_heat — ver migration 005), e a prova
+// inteira é gerada de uma vez, cruzando todas as categorias com equipe
+// cadastrada, não mais uma categoria por chamada.
 interface GenerateHeatsInput {
-  category_id: number;
-  lanes_per_heat: number;
   force?: boolean;
 }
 

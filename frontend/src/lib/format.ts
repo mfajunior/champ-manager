@@ -16,3 +16,30 @@ export function formatDate(isoDate: string): string {
   const [year, month, day] = isoDate.slice(0, 10).split('-');
   return `${day}/${month}/${year}`;
 }
+
+/**
+ * heats.scheduled_time é TIMESTAMP sem fuso no Postgres (mesma armadilha do
+ * formatDate acima). O horário aí dentro é sempre o horário LOCAL do
+ * campeonato (07:00 que você digitou em "Hora de início" continua sendo
+ * literalmente 07:00 no banco — nunca teve conversão de fuso nenhuma).
+ *
+ * O problema é só na hora de exibir: o driver `pg` devolve esse valor como
+ * um objeto Date tratando os dígitos crus como se fossem UTC (ex.: 07:00 no
+ * banco vira um Date cujo instante UTC é 07:00Z). Formatar isso com
+ * toLocaleTimeString() converte esse "07:00 rotulado como UTC" pro fuso do
+ * navegador (Brasília, UTC-3) — e 07:00 UTC menos 3h exibe 04:00. É
+ * exatamente o bug que você viu: campeonato configurado pra 07h, baterias
+ * calculadas mostrando 04h.
+ *
+ * A correção é a mesma ideia do formatDate: nunca deixar o navegador
+ * converter fuso nesse valor. Os componentes UTC do Date (getUTCHours/
+ * getUTCMinutes) são exatamente os dígitos originais gravados no banco —
+ * extraindo direto deles, sem toLocaleTimeString(), o horário exibido volta
+ * a bater com o que foi digitado.
+ */
+export function formatTime(isoDateTime: string): string {
+  const date = new Date(isoDateTime);
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}

@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../../src/app');
+const { createTestUser } = require('../helpers/testAuth');
 const { pool } = require('../../src/config/database');
 
 /**
@@ -15,10 +16,7 @@ describe('Championships (integração com banco real)', () => {
 
   beforeAll(async () => {
     const email = `jest-champ-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
-    const registro = await request(app)
-      .post('/api/auth/register')
-      .send({ email, password: 'jest12345', name: 'Jest Championships' });
-    token = registro.body.data.token;
+    token = (await createTestUser({ email, name: 'Jest Championships' })).token;
   });
 
   afterAll(async () => {
@@ -111,6 +109,32 @@ describe('Championships (integração com banco real)', () => {
       .send({});
 
     expect(res.status).toBe(400);
+  });
+
+  test('PUT is_active:false arquiva — some da listagem padrão mas continua existindo', async () => {
+    const arquivar = await request(app)
+      .put(`/api/championships/${championshipId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ is_active: false });
+
+    expect(arquivar.status).toBe(200);
+    expect(arquivar.body.data.is_active).toBe(false);
+
+    const listaPadrao = await request(app).get('/api/championships');
+    expect(listaPadrao.body.data.map((c) => c.id)).not.toContain(championshipId);
+
+    // O campeonato continua existindo — arquivar não é o mesmo que apagar.
+    const detalhe = await request(app).get(`/api/championships/${championshipId}`);
+    expect(detalhe.status).toBe(200);
+
+    const listaComArquivados = await request(app).get('/api/championships?include_archived=true');
+    expect(listaComArquivados.body.data.map((c) => c.id)).toContain(championshipId);
+
+    // Desarquiva de novo pra não interferir no teste de DELETE logo abaixo.
+    await request(app)
+      .put(`/api/championships/${championshipId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ is_active: true });
   });
 
   test('DELETE /:id apaga o campeonato e arrasta as categorias por CASCADE', async () => {

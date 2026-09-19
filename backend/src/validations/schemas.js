@@ -18,12 +18,6 @@ const { ALLOWED_SCORING_TYPES } = require('../controllers/workoutController');
 // só por causa do ".local", mesmo sendo um formato de email perfeitamente
 // válido. Desligar essa checagem específica não abre mão de validar o
 // formato do email (usuário@domínio) — só para de julgar QUAL domínio.
-const authRegister = Joi.object({
-  email: Joi.string().trim().email({ tlds: { allow: false } }).required(),
-  password: Joi.string().min(6).required(),
-  name: Joi.string().trim().min(2).required(),
-});
-
 const authLogin = Joi.object({
   email: Joi.string().trim().email({ tlds: { allow: false } }).required(),
   password: Joi.string().required(),
@@ -35,11 +29,20 @@ const championshipCreate = Joi.object({
   location: Joi.string().trim().min(2).required(),
 });
 
+// lanes_per_heat/transition_seconds/start_time: parâmetros globais de agenda
+// (ver migration 005) — configurados aqui, não em championshipCreate, porque
+// só fazem sentido depois que o organizador sabe quantas raias o box tem.
+// pattern HH:mm ou HH:mm:ss porque é isso que um <input type="time"> do
+// front manda (HH:mm) e o que o Postgres devolve de volta (HH:mm:ss) — aceitar
+// os dois evita ida e volta de formatação só pra validar.
 const championshipUpdate = Joi.object({
   name: Joi.string().trim().min(2),
   date: Joi.date().iso(),
   location: Joi.string().trim().min(2),
   is_active: Joi.boolean(),
+  lanes_per_heat: Joi.number().integer().positive(),
+  transition_seconds: Joi.number().integer().min(0),
+  start_time: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/),
 }).min(1);
 
 const teamCreate = Joi.object({
@@ -71,7 +74,6 @@ const workoutUpdate = Joi.object({
 }).min(1);
 
 module.exports = {
-  authRegister,
   authLogin,
   championshipCreate,
   championshipUpdate,
