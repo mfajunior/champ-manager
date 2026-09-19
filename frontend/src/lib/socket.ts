@@ -1,6 +1,9 @@
 import { io, type Socket } from 'socket.io-client';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Mesma lógica de api.ts: vazio por padrão, proxy do Vite cuida do resto em
+// desenvolvimento. io(undefined, ...) conecta na própria origem da página —
+// diferente de fetch, o cliente socket.io não aceita string vazia como URL.
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Uma única conexão para o app inteiro, criada só quando alguém precisa dela
 // (autoConnect: false) — a maior parte das telas do painel não usa
@@ -11,7 +14,7 @@ let socket: Socket | null = null;
 
 const getSocket = (): Socket => {
   if (!socket) {
-    socket = io(API_URL, { autoConnect: false });
+    socket = io(API_URL || undefined, { autoConnect: false });
   }
   return socket;
 };

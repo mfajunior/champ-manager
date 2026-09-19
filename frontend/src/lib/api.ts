@@ -1,6 +1,13 @@
 import type { ApiEnvelope, ApiErrorBody } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Vazio por padrão = caminho relativo ("/api/...", ver função request
+// abaixo), resolvido pelo navegador contra a própria origem da página. Em
+// desenvolvimento (`npm run dev`), o proxy do Vite (vite.config.ts) encaminha
+// esses caminhos para o backend em localhost:5000 — funciona igual acessando
+// de localhost, do celular na wifi, ou de fora via túnel, sem precisar
+// configurar IP nenhum. Em produção (`vite build`), esse proxy não existe:
+// VITE_API_URL precisa apontar pro backend publicado (ver README.md).
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const TOKEN_KEY = 'champy_token';
 
@@ -60,7 +67,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   // DELETE bem-sucedido devolve { data: null, meta } — ainda assim tem corpo
-  // JSON no Champy (nenhuma rota usa 204), então sempre dá para fazer parse.
+  // JSON no ScoreUp (nenhuma rota usa 204), então sempre dá para fazer parse.
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {

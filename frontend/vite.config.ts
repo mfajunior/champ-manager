@@ -15,5 +15,38 @@ export default defineConfig({
     // http://<IP-do-PC>:3000. Sem isso, "acessar pelo celular" nem chega a
     // tentar: a conexão cai antes de existir resposta.
     host: true,
+    // Proteção contra DNS rebinding: por padrão o Vite só aceita requests
+    // cujo cabeçalho Host seja localhost/127.0.0.1/o IP da própria máquina —
+    // qualquer outro Host (como o domínio gerado pelo túnel) é recusado com
+    // "Blocked request... not allowed". O sufixo com ponto libera qualquer
+    // subdomínio de trycloudflare.com (a URL do quick tunnel muda a cada
+    // reinício, então não dá pra travar num host fixo) sem abrir pra
+    // qualquer host da internet — ver server.allowedHosts na doc do Vite.
+    allowedHosts: ['.trycloudflare.com'],
+    // Encaminha /api e /socket.io para o backend em localhost:5000, do lado
+    // do SERVIDOR do Vite (Node), não do navegador. Antes disso, o front
+    // chamava a API por uma URL absoluta gravada em VITE_API_URL
+    // (http://localhost:5000 ou o IP da rede, dependendo de quem acessava) —
+    // então acessar de outro lugar (celular na wifi, ou de fora de casa por
+    // um túnel/ngrok) exigia trocar essa URL toda vez, e ela precisava ser
+    // alcançável PELO NAVEGADOR de quem está acessando, não só pelo PC.
+    // Com o proxy, o front chama só "/api/..." (caminho relativo — ver
+    // src/lib/api.ts e socket.ts): o navegador de quem acessa nem sabe que
+    // existe uma porta 5000, e o Vite decide pra onde mandar cada request.
+    // Isso só vale em desenvolvimento (`npm run dev`) — um build de produção
+    // (`vite build`) não tem esse servidor rodando, então em produção
+    // continua sendo necessário configurar VITE_API_URL de verdade (ver
+    // README.md, seção de deploy).
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
   },
 })
