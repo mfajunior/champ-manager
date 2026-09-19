@@ -12,7 +12,7 @@ export function WorkoutsList({ championshipId, workouts }: { championshipId: num
       {workouts.map((workout) => (
         <li key={workout.id}>
           <Link
-            to={`/campeonatos/${championshipId}/provas/${workout.id}`}
+            to={`/admin/campeonatos/${championshipId}/provas/${workout.id}`}
             className="flex items-center justify-between px-4 py-3 hover:bg-muted"
           >
             <div>

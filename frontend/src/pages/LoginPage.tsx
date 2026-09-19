@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { Input } from '../components/ui/Input';
@@ -15,7 +15,7 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/admin" replace />;
   }
 
   const handleSubmit = async (event: FormEvent) => {
@@ -24,7 +24,7 @@ export function LoginPage() {
     setIsSubmitting(true);
     try {
       await login(email, password);
-      navigate('/');
+      navigate('/admin');
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -35,7 +35,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm border border-border bg-white p-8">
-        <h1 className="mb-1 text-3xl">Champy</h1>
+        <h1 className="mb-1 text-3xl">ScoreUp</h1>
         <p className="mb-6 text-sm text-muted-foreground">Entre para gerenciar seus campeonatos.</p>
 
         {error && (
@@ -65,13 +65,6 @@ export function LoginPage() {
             {isSubmitting ? 'Entrando...' : 'Entrar'}
           </Button>
         </form>
-
-        <p className="mt-6 text-center text-sm text-muted-foreground">
-          Ainda não tem conta?{' '}
-          <Link to="/registrar" className="font-semibold text-brand">
-            Cadastre-se
-          </Link>
-        </p>
       </div>
     </div>
   );
