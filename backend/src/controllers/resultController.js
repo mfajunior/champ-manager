@@ -211,17 +211,20 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     // $2 nulo desliga o filtro de categoria, igual ao padrão usado em teams/getAll.
+    // Categoria vem da EQUIPE (t.category_id), não da bateria: desde que baterias
+    // passaram a poder misturar categorias (ver migration 005), uma bateria não
+    // tem mais categoria própria.
     const results = await queryAll(
       `SELECT r.id, r.heat_team_id, r."place", r.raw_value, r.did_not_finish, r.recorded_at,
               t.id AS team_id, t.name AS team_name,
-              h.category_id, c.name AS category_name
+              t.category_id, c.name AS category_name
        FROM results r
        JOIN heat_teams ht ON ht.id = r.heat_team_id
        JOIN heats h ON h.id = ht.heat_id
        JOIN teams t ON t.id = ht.team_id
-       JOIN categories c ON c.id = h.category_id
+       JOIN categories c ON c.id = t.category_id
        WHERE h.workout_id = $1
-         AND ($2::int IS NULL OR h.category_id = $2::int)
+         AND ($2::int IS NULL OR t.category_id = $2::int)
        ORDER BY c.id ASC, r."place" ASC`,
       [workout_id, category_id || null]
     );

@@ -7,10 +7,18 @@ export const championshipKeys = {
   detail: (id: number) => ['championships', id] as const,
 };
 
-export function useChampionships() {
+// includeArchived traz também os campeonatos arquivados (is_active = false)
+// — usado só na seção "Arquivados" da tela de campeonatos. A chave de
+// cache inclui a flag pra não misturar a lista ativa com a lista completa.
+export function useChampionships(includeArchived = false) {
   return useQuery({
-    queryKey: championshipKeys.all,
-    queryFn: async () => (await api.get<Championship[]>('/api/championships')).data,
+    queryKey: [...championshipKeys.all, { includeArchived }],
+    queryFn: async () =>
+      (
+        await api.get<Championship[]>(
+          `/api/championships${includeArchived ? '?include_archived=true' : ''}`
+        )
+      ).data,
   });
 }
 
@@ -44,6 +52,28 @@ export function useDeleteChampionship() {
   return useMutation({
     mutationFn: async (id: number) => api.delete(`/api/championships/${id}`),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: championshipKeys.all });
+    },
+  });
+}
+
+interface UpdateChampionshipInput {
+  name?: string;
+  date?: string;
+  location?: string;
+  is_active?: boolean;
+  lanes_per_heat?: number;
+  transition_seconds?: number;
+  start_time?: string;
+}
+
+export function useUpdateChampionship(id: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UpdateChampionshipInput) =>
+      (await api.put<Championship>(`/api/championships/${id}`, input)).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: championshipKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: championshipKeys.all });
     },
   });

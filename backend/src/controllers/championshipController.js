@@ -22,10 +22,16 @@ exports.create = async (req, res, next) => {
     // Formato do corpo já validado pelo middleware `validate(schemas.championshipCreate)`.
     const { name, date, location } = req.body;
 
+    // Raias, transição e hora de início são parâmetros globais de agenda
+    // (championships.lanes_per_heat/transition_seconds/start_time — ver
+    // migration 005) configurados DEPOIS, em "configurações do campeonato"
+    // (update), não na criação: nesse momento o organizador ainda pode nem
+    // saber quantas raias o box tem disponíveis.
     const championship = await queryOne(
       `INSERT INTO championships (name, date, location, created_by)
        VALUES ($1, $2, $3, $4)
-       RETURNING id, name, date, location, is_active, created_at`,
+       RETURNING id, name, date, location, is_active, created_at,
+                 lanes_per_heat, transition_seconds, start_time`,
       [name, date, location, req.user.id]
     );
 
@@ -57,15 +63,23 @@ exports.create = async (req, res, next) => {
 };
 
 // GET /api/championships  (público)
+// ?include_archived=true também traz os arquivados (is_active = false).
+// Sem o parâmetro, um campeonato arquivado some da lista mas continua
+// existindo no banco — "arquivar" é a alternativa reversível ao DELETE
+// (que apaga o campeonato e tudo que depende dele por CASCADE).
 exports.getAll = async (req, res, next) => {
   try {
+    const includeArchived = req.query.include_archived === 'true';
+
     const championships = await queryAll(
       `SELECT c.id, c.name, c.date, c.location, c.is_active, c.created_at,
+              c.lanes_per_heat, c.transition_seconds, c.start_time,
               COUNT(DISTINCT t.id)::int AS teams_count,
               COUNT(DISTINCT w.id)::int AS workouts_count
        FROM championships c
        LEFT JOIN teams t ON t.championship_id = c.id
        LEFT JOIN workouts w ON w.championship_id = c.id
+       ${includeArchived ? '' : 'WHERE c.is_active = TRUE'}
        GROUP BY c.id
        ORDER BY c.date DESC`
     );
@@ -85,7 +99,8 @@ exports.getById = async (req, res, next) => {
     const { id } = req.params;
 
     const championship = await queryOne(
-      `SELECT id, name, date, location, is_active, created_at
+      `SELECT id, name, date, location, is_active, created_at,
+              lanes_per_heat, transition_seconds, start_time
        FROM championships WHERE id = $1`,
       [id]
     );
@@ -120,7 +135,7 @@ exports.getById = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, date, location, is_active } = req.body;
+    const { name, date, location, is_active, lanes_per_heat, transition_seconds, start_time } = req.body;
 
     const championship = await queryOne(
       'SELECT id FROM championships WHERE id = $1',
@@ -135,14 +150,27 @@ exports.update = async (req, res, next) => {
 
     const updated = await queryOne(
       `UPDATE championships
-       SET name       = COALESCE($1, name),
-           date       = COALESCE($2, date),
-           location   = COALESCE($3, location),
-           is_active  = COALESCE($4, is_active),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5
-       RETURNING id, name, date, location, is_active, updated_at`,
-      [name ?? null, date ?? null, location ?? null, is_active ?? null, id]
+       SET name                = COALESCE($1, name),
+           date                = COALESCE($2, date),
+           location            = COALESCE($3, location),
+           is_active           = COALESCE($4, is_active),
+           lanes_per_heat      = COALESCE($5, lanes_per_heat),
+           transition_seconds  = COALESCE($6, transition_seconds),
+           start_time          = COALESCE($7, start_time),
+           updated_at          = CURRENT_TIMESTAMP
+       WHERE id = $8
+       RETURNING id, name, date, location, is_active, updated_at,
+                 lanes_per_heat, transition_seconds, start_time`,
+      [
+        name ?? null,
+        date ?? null,
+        location ?? null,
+        is_active ?? null,
+        lanes_per_heat ?? null,
+        transition_seconds ?? null,
+        start_time ?? null,
+        id,
+      ]
     );
 
     res.status(200).json({

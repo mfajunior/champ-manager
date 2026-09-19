@@ -26,6 +26,13 @@ export interface Championship {
   teams_count?: number;
   workouts_count?: number;
   categories?: Category[];
+  // Parâmetros globais de agenda (migration 005) — null até serem
+  // configurados uma vez em "configurações do campeonato". lanes_per_heat é
+  // exigido pra gerar baterias; transition_seconds/start_time são opcionais
+  // (sem eles, dá pra gerar baterias mas sem horário calculado).
+  lanes_per_heat: number | null;
+  transition_seconds: number | null;
+  start_time: string | null;
 }
 
 export interface Team {
@@ -72,6 +79,10 @@ export interface HeatLane {
   lane_number: number;
   team_id: number;
   team_name: string;
+  // Categoria da EQUIPE, não da bateria: desde a migration 005 uma bateria
+  // pode misturar categorias, então cada raia carrega a sua própria.
+  category_id: number;
+  category_name: string;
   result_id: number | null;
   place: number | null;
   raw_value: string | null;
@@ -82,8 +93,10 @@ export interface Heat {
   id: number;
   workout_id: number;
   heat_number: number;
-  category_id: number;
-  category_name: string;
+  // Duração calculada (maior time cap entre as categorias presentes nela) —
+  // null se alguma delas não tem time cap definido pra esta prova; nesse
+  // caso o horário desta bateria e de todas as seguintes também é null.
+  duration_seconds: number | null;
   scheduled_time: string | null;
   status: 'scheduled' | 'in_progress' | 'completed';
   teams: HeatLane[];
@@ -96,6 +109,21 @@ export interface Result {
   raw_value: string | null;
   did_not_finish: boolean;
   recorded_at: string;
+}
+
+// Resultado de uma equipe numa prova específica, vindo de GET
+// /api/teams/:id/results. Os 3 campos vêm juntos ou nulos juntos: sem
+// resultado lançado para essa prova, os 3 são null (nem sequer existe bateria
+// gerada pra essa categoria ainda) — não é o mesmo caso de HeatLane, que
+// sempre representa uma raia existente.
+export interface TeamWorkoutResult {
+  workout_id: number;
+  workout_number: number;
+  workout_name: string;
+  scoring_type: ScoringType;
+  raw_value: string | null;
+  did_not_finish: boolean | null;
+  place: number | null;
 }
 
 export interface AuditLogEntry {
@@ -112,7 +140,6 @@ export interface AuditLogEntry {
 }
 
 export interface Standing {
-  id: number;
   team_id: number;
   team_name: string;
   category_id: number;
@@ -120,9 +147,12 @@ export interface Standing {
   gender?: Category['gender'];
   level?: Category['level'];
   total_score: number;
-  place: number;
+  // null até a equipe ter pelo menos 1 resultado lançado em algum lugar do
+  // campeonato (é quando o trigger do banco calcula o place de verdade,
+  // inclusive das que ainda não pontuaram — ver leaderboardController.js).
+  place: number | null;
   workouts_completed: number;
-  updated_at: string;
+  updated_at: string | null;
 }
 
 // Formato de erro devolvido pelo error handler central (backend/src/app.js)

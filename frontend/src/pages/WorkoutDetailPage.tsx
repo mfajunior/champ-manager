@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { HeatGeneratorForm } from '../components/heats/HeatGeneratorForm';
-import { HeatsList } from '../components/heats/HeatsList';
 import { ErrorBanner } from '../components/ui/ErrorBanner';
-import { Modal } from '../components/ui/Modal';
 import { Select } from '../components/ui/Select';
 import { Spinner } from '../components/ui/Spinner';
 import { WarningBanner } from '../components/ui/WarningBanner';
 import { WorkoutVariantEditor } from '../components/workouts/WorkoutVariantEditor';
 import { useChampionship } from '../hooks/useChampionships';
-import { useHeats } from '../hooks/useHeats';
 import { useUpdateWorkout, useWorkout } from '../hooks/useWorkouts';
 import { getErrorMessage } from '../lib/errors';
 import { SCORING_TYPE_LABELS } from '../lib/scoring';
 import type { ScoringType } from '../types';
 
+// Detalhe de uma prova, no admin: só registro (tipo de pontuação) e
+// descrição por categoria. Gerar baterias e lançar resultado viraram a aba
+// "Baterias" em ChampionshipDetailPage (ver AdminHeatsPanel) — essa página
+// ficou exclusiva do que é "a prova em si", não de como ela é disputada.
 export function WorkoutDetailPage() {
   const { id: championshipIdParam, workoutId: workoutIdParam } = useParams<{
     id: string;
@@ -23,12 +23,10 @@ export function WorkoutDetailPage() {
   const championshipId = Number(championshipIdParam);
   const workoutId = Number(workoutIdParam);
 
-  const [isGeneratingHeats, setIsGeneratingHeats] = useState(false);
   const [scoringWarning, setScoringWarning] = useState<string | null>(null);
 
   const championship = useChampionship(championshipId);
   const workout = useWorkout(workoutId);
-  const heats = useHeats(workoutId);
   const updateWorkout = useUpdateWorkout(championshipId, workoutId);
 
   if (workout.isLoading || championship.isLoading) {
@@ -53,7 +51,7 @@ export function WorkoutDetailPage() {
   return (
     <div>
       <Link
-        to={`/campeonatos/${championshipId}`}
+        to={`/admin/campeonatos/${championshipId}`}
         className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
       >
         ← {championship.data.name}
@@ -103,34 +101,6 @@ export function WorkoutDetailPage() {
           ))}
         </div>
       </section>
-
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xl">Baterias e resultados</h2>
-          <button
-            onClick={() => setIsGeneratingHeats(true)}
-            className="text-xs font-bold uppercase tracking-wider text-brand hover:opacity-70"
-          >
-            Configurar baterias
-          </button>
-        </div>
-
-        {heats.isLoading && <Spinner label="Carregando baterias..." />}
-        {heats.isError && <ErrorBanner message={getErrorMessage(heats.error)} />}
-        {heats.data && (
-          <HeatsList heats={heats.data} workoutId={workoutId} scoringType={workout.data.scoring_type} />
-        )}
-      </section>
-
-      {isGeneratingHeats && (
-        <Modal title="Gerar baterias" onClose={() => setIsGeneratingHeats(false)}>
-          <HeatGeneratorForm
-            workoutId={workoutId}
-            categories={categories}
-            onGenerated={() => setIsGeneratingHeats(false)}
-          />
-        </Modal>
-      )}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { ChampionshipSettingsForm } from '../components/championships/ChampionshipSettingsForm';
+import { AdminHeatsPanel } from '../components/heats/AdminHeatsPanel';
 import { TeamForm } from '../components/teams/TeamForm';
 import { TeamsTable } from '../components/teams/TeamsTable';
 import { Button } from '../components/ui/Button';
@@ -14,7 +16,7 @@ import { useWorkouts } from '../hooks/useWorkouts';
 import { formatDate } from '../lib/format';
 import { getErrorMessage } from '../lib/errors';
 
-type Tab = 'equipes' | 'provas';
+type Tab = 'equipes' | 'provas' | 'baterias';
 
 export function ChampionshipDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,6 +24,7 @@ export function ChampionshipDetailPage() {
   const [tab, setTab] = useState<Tab>('equipes');
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [isCreatingWorkout, setIsCreatingWorkout] = useState(false);
+  const [isEditingSettings, setIsEditingSettings] = useState(false);
 
   const championship = useChampionship(championshipId);
   const teams = useTeams(championshipId);
@@ -40,7 +43,7 @@ export function ChampionshipDetailPage() {
 
   return (
     <div>
-      <Link to="/" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+      <Link to="/admin" className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
         ← Campeonatos
       </Link>
 
@@ -48,12 +51,20 @@ export function ChampionshipDetailPage() {
       <p className="mt-1 text-sm text-muted-foreground">
         {formatDate(championship.data.date)} · {championship.data.location}
       </p>
-      <Link
-        to={`/placar/${championshipId}`}
-        className="mt-3 inline-block text-xs font-bold uppercase tracking-widest text-brand"
-      >
-        Ver placar público →
-      </Link>
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
+        <Link
+          to={`/placar/${championshipId}`}
+          className="inline-block text-xs font-bold uppercase tracking-widest text-brand"
+        >
+          Ver placar público →
+        </Link>
+        <Link
+          to={`/evento/${championshipId}`}
+          className="inline-block text-xs font-bold uppercase tracking-widest text-brand"
+        >
+          Ver homepage pública →
+        </Link>
+      </div>
 
       <div className="mt-8 flex gap-6 border-b border-border">
         <button
@@ -71,6 +82,14 @@ export function ChampionshipDetailPage() {
           }`}
         >
           Provas
+        </button>
+        <button
+          onClick={() => setTab('baterias')}
+          className={`pb-3 text-sm font-bold uppercase tracking-wider ${
+            tab === 'baterias' ? 'border-b-2 border-brand text-brand' : 'text-muted-foreground'
+          }`}
+        >
+          Baterias
         </button>
       </div>
 
@@ -98,6 +117,37 @@ export function ChampionshipDetailPage() {
             )}
           </div>
         )}
+
+        {tab === 'baterias' && (
+          <div>
+            <div className="mb-4 flex justify-end">
+              <button
+                onClick={() => setIsEditingSettings(true)}
+                className="text-xs font-bold uppercase tracking-widest text-brand hover:opacity-70"
+              >
+                Configurar agenda (raias/transição/início) →
+              </button>
+            </div>
+
+            {championship.data.lanes_per_heat === null && (
+              <p className="mb-4 text-xs font-semibold text-destructive">
+                Nenhuma raia configurada ainda — defina em "Configurar agenda" antes
+                de gerar baterias.
+              </p>
+            )}
+
+            {workouts.isLoading && <Spinner label="Carregando provas..." />}
+            {workouts.isError && <ErrorBanner message={getErrorMessage(workouts.error)} />}
+            {workouts.data && workouts.data.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma prova cadastrada ainda — cadastre uma na aba "Provas" primeiro.
+              </p>
+            )}
+            {workouts.data && workouts.data.length > 0 && (
+              <AdminHeatsPanel championship={championship.data} workouts={workouts.data} />
+            )}
+          </div>
+        )}
       </div>
 
       {isCreatingTeam && (
@@ -116,6 +166,15 @@ export function ChampionshipDetailPage() {
             championshipId={championshipId}
             nextWorkoutNumber={nextWorkoutNumber}
             onCreated={() => setIsCreatingWorkout(false)}
+          />
+        </Modal>
+      )}
+
+      {isEditingSettings && (
+        <Modal title="Configurações de agenda" onClose={() => setIsEditingSettings(false)}>
+          <ChampionshipSettingsForm
+            championship={championship.data}
+            onSaved={() => setIsEditingSettings(false)}
           />
         </Modal>
       )}

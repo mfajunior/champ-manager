@@ -1,33 +1,48 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ErrorBanner } from '../ui/ErrorBanner';
-import { Input } from '../ui/Input';
-import { Select } from '../ui/Select';
 import { useGenerateHeats } from '../../hooks/useHeats';
 import { ApiError } from '../../lib/api';
 import { getErrorMessage } from '../../lib/errors';
-import type { Category } from '../../types';
+import type { Championship } from '../../types';
 
+/**
+ * Raias, transição e hora de início não são mais escolhidas aqui — são
+ * parâmetros globais do campeonato (championship.lanes_per_heat/
+ * transition_seconds/start_time, configurados uma vez em "Configurar
+ * agenda" — ver ChampionshipSettingsForm). A prova inteira é gerada de uma
+ * vez, cruzando todas as categorias com equipe cadastrada: o que sobra de
+ * uma categoria é completado pela próxima da sequência fixa (nível:
+ * iniciante → scale → rx; dentro do nível: feminino → masculino → misto),
+ * em vez de deixar raia vazia até a próxima prova.
+ */
 export function HeatGeneratorForm({
   workoutId,
-  categories,
+  championship,
   onGenerated,
 }: {
   workoutId: number;
-  categories: Category[];
+  championship: Championship;
   onGenerated: () => void;
 }) {
-  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? 0);
-  const [lanesPerHeat, setLanesPerHeat] = useState(4);
   const [error, setError] = useState<string | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const generateHeats = useGenerateHeats(workoutId);
 
+  if (championship.lanes_per_heat === null) {
+    return (
+      <p className="text-sm text-destructive">
+        Defina o número de raias do campeonato antes de gerar baterias — isso
+        fica em "Configurar agenda", na página do campeonato.
+      </p>
+    );
+  }
+
   const runGenerate = async (force: boolean) => {
     setError(null);
     try {
-      await generateHeats.mutateAsync({ category_id: categoryId, lanes_per_heat: lanesPerHeat, force });
+      await generateHeats.mutateAsync({ force });
       setConfirmMessage(null);
       onGenerated();
     } catch (err) {
@@ -43,40 +58,17 @@ export function HeatGeneratorForm({
     }
   };
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    await runGenerate(false);
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
       {error && <ErrorBanner message={error} />}
-      <Select
-        label="Categoria"
-        name="category_id"
-        value={categoryId}
-        onChange={(e) => setCategoryId(Number(e.target.value))}
-      >
-        {categories.map((category) => (
-          <option key={category.id} value={category.id}>
-            {category.name}
-          </option>
-        ))}
-      </Select>
-      <Input
-        label="Raias disponíveis no box"
-        type="number"
-        name="lanes_per_heat"
-        min={1}
-        required
-        value={lanesPerHeat}
-        onChange={(e) => setLanesPerHeat(Number(e.target.value))}
-      />
-      <p className="text-xs text-muted-foreground">
-        As baterias são distribuídas de forma equilibrada entre as raias — não é
-        "encher até o limite". Gerar de novo substitui as baterias atuais dessa categoria.
+      <p className="text-sm text-muted-foreground">
+        Gera baterias para todas as categorias com equipe cadastrada, usando
+        as {championship.lanes_per_heat} raias configuradas para este
+        campeonato. Categorias diferentes podem dividir a mesma bateria, na
+        sequência iniciante → scale → rx. Gerar de novo substitui as baterias
+        atuais desta prova.
       </p>
-      <Button type="submit" disabled={generateHeats.isPending} className="mt-2">
+      <Button onClick={() => runGenerate(false)} disabled={generateHeats.isPending} className="mt-2">
         {generateHeats.isPending ? 'Gerando...' : 'Gerar baterias'}
       </Button>
 
@@ -90,6 +82,6 @@ export function HeatGeneratorForm({
           onConfirm={() => runGenerate(true)}
         />
       )}
-    </form>
+    </div>
   );
 }

@@ -1,70 +1,91 @@
 const { pool, queryOne, queryAll } = require('../config/database');
 
 /**
- * GERAÇÃO DE BATERIAS
+ * ORDEM FIXA DE DISPUTA
  *
- * A restrição física é o número de raias do box, não o número de baterias.
- * O organizador informa quantas raias tem; o sistema calcula quantas baterias
- * são necessárias e distribui as equipes de forma equilibrada.
+ * Categorias diferentes podem competir na mesma bateria agora — o que sobra
+ * de raia de uma categoria é preenchido com a categoria seguinte, em vez de
+ * deixar raia vazia até a próxima prova. A ordem é sempre a mesma, campeonato
+ * inteiro: nível (iniciante -> scale -> rx) e, dentro do nível, gênero
+ * (feminino -> masculino -> misto).
  *
- * Por que equilibrado e não "encher cada bateria até o limite":
- *   6 equipes, 4 raias
- *   - enchendo:     bateria 1 com 4, bateria 2 com 2   → última fica esvaziada
- *   - equilibrado:  bateria 1 com 3, bateria 2 com 3   → 1 raia livre em cada
- *
- * Duas baterias de 3 dão a mesma condição de prova para todo mundo: mesmo
- * barulho, mesma quantidade de gente competindo ao lado, mesmo tempo de
- * transição. É o que se faz num campeonato de verdade.
- *
- * O round-robin (índice % número de baterias) produz essa distribuição sem
- * nenhuma conta extra — a diferença entre a maior e a menor bateria nunca passa
- * de uma equipe.
+ * Só entram aqui categorias com pelo menos 1 equipe cadastrada — uma
+ * categoria vazia não aparece na sequência e não "gasta" bateria nenhuma.
  */
-const distributeTeams = (teams, numHeats) => {
-  const buckets = Array.from({ length: numHeats }, () => []);
-  teams.forEach((team, index) => {
-    buckets[index % numHeats].push(team);
-  });
-  return buckets;
-};
+const LEVEL_ORDER = { iniciante: 1, scale: 2, rx: 3 };
+const GENDER_ORDER = { feminino: 1, masculino: 2, misto: 3 };
 
-// Exportada à parte para dar pra testar sem precisar de banco
-// (tests/unit/heatController.test.js).
-exports.distributeTeams = distributeTeams;
+const categorySortKey = (category) =>
+  (LEVEL_ORDER[category.level] ?? 99) * 10 + (GENDER_ORDER[category.gender] ?? 99);
+
+/**
+ * Achata equipe-a-equipe, já na ordem final de disputa, e divide em baterias
+ * de até `lanesPerHeat` raias. Pura e sem banco de propósito — dá pra testar
+ * a lógica de preenchimento sem subir Postgres (tests/unit/heatController.test.js).
+ *
+ * Substitui o antigo `distributeTeams` (round-robin balanceado DENTRO de uma
+ * categoria só). Esse balanceamento não faz mais sentido com baterias mistas:
+ * o que sobra de uma categoria é completado pela próxima da sequência, então
+ * "bateria cheia até a última" deixou de ser um problema a resolver — só a
+ * bateria final do campeonato inteiro (a última categoria, sem mais ninguém
+ * pra completar) pode sobrar incompleta, e isso é inevitável, não um bug.
+ */
+const chunkIntoHeats = (assignments, lanesPerHeat) => {
+  const chunks = [];
+  for (let i = 0; i < assignments.length; i += lanesPerHeat) {
+    chunks.push(assignments.slice(i, i + lanesPerHeat));
+  }
+  return chunks;
+};
+exports.chunkIntoHeats = chunkIntoHeats;
+
+/**
+ * Calcula o horário de início de cada bateria em sequência, pura e sem banco.
+ *
+ * `startCursor`: Date da âncora inicial (horário calculado da última bateria
+ * já agendada em QUALQUER prova do campeonato, ou o início do campeonato se
+ * essa é a primeira geração), ou null se nenhuma das duas está disponível
+ * (campeonato sem hora de início definida e nenhuma bateria anterior
+ * agendada) — nesse caso ninguém recebe horário.
+ *
+ * `heatPlans`: lista na ordem de geração, cada item com `durationSeconds`
+ * (maior time cap entre as categorias daquela bateria, ou null se alguma
+ * delas não tem time cap definido pra essa prova).
+ *
+ * Uma vez que uma bateria de duração desconhecida aparece, o cursor vira
+ * null e todas as baterias SEGUINTES também ficam sem horário — não dá pra
+ * saber quando uma bateria começa sem saber quando a anterior termina.
+ */
+const computeHeatSchedule = (heatPlans, { startCursor, transitionSeconds }) => {
+  let cursor = startCursor;
+  return heatPlans.map((plan) => {
+    if (!cursor) {
+      return { scheduledTime: null };
+    }
+    const scheduledTime = new Date(cursor.getTime());
+    if (typeof plan.durationSeconds === 'number') {
+      cursor = new Date(cursor.getTime() + (plan.durationSeconds + transitionSeconds) * 1000);
+    } else {
+      cursor = null;
+    }
+    return { scheduledTime };
+  });
+};
+exports.computeHeatSchedule = computeHeatSchedule;
 
 // POST /api/workouts/:workout_id/heats  (protegido)
-// body: { category_id, lanes_per_heat, start_time?, interval_minutes?, force? }
+// body: { force? }
+// Raias, transição e horário de início não são mais parâmetros da chamada —
+// são globais do campeonato (championships.lanes_per_heat/transition_seconds
+// /start_time, configurados uma vez). A prova inteira é gerada de uma vez,
+// cruzando todas as categorias com equipe cadastrada, não mais uma categoria
+// por chamada.
 exports.generate = async (req, res, next) => {
   const client = await pool.connect();
 
   try {
     const { workout_id } = req.params;
-    const {
-      category_id,
-      lanes_per_heat,
-      start_time,
-      interval_minutes,
-      force = false,
-    } = req.body;
-
-    if (!category_id || !lanes_per_heat) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'category_id e lanes_per_heat são obrigatórios',
-        },
-      });
-    }
-
-    const lanes = Number(lanes_per_heat);
-    if (!Number.isInteger(lanes) || lanes < 1) {
-      return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'lanes_per_heat deve ser um inteiro maior que zero',
-        },
-      });
-    }
+    const { force = false } = req.body;
 
     const workout = await queryOne(
       'SELECT id, championship_id, workout_number, name FROM workouts WHERE id = $1',
@@ -77,50 +98,74 @@ exports.generate = async (req, res, next) => {
       });
     }
 
-    const category = await queryOne(
-      'SELECT id, championship_id, name FROM categories WHERE id = $1',
-      [category_id]
+    // to_char em vez de deixar o driver converter DATE/TIME: evita qualquer
+    // ambiguidade de fuso horário na hora de montar a string combinada
+    // "data + hora" mais abaixo — o mesmo cuidado que já existe no resto do
+    // projeto com horário (ver comentário de trust proxy em app.js).
+    const championship = await queryOne(
+      `SELECT id, lanes_per_heat, transition_seconds,
+              to_char(date, 'YYYY-MM-DD') AS date_str,
+              to_char(start_time, 'HH24:MI:SS') AS start_time_str
+       FROM championships WHERE id = $1`,
+      [workout.championship_id]
     );
 
-    if (!category) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: 'Categoria não encontrada' },
-      });
-    }
-
-    if (Number(category.championship_id) !== Number(workout.championship_id)) {
+    if (!championship.lanes_per_heat) {
       return res.status(400).json({
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'A categoria não pertence ao mesmo campeonato da prova',
+          message:
+            'Defina o número de raias do campeonato antes de gerar baterias (configurações do campeonato).',
         },
       });
     }
 
-    const teams = await queryAll(
-      'SELECT id, name FROM teams WHERE category_id = $1 ORDER BY id ASC',
-      [category_id]
+    const lanes = championship.lanes_per_heat;
+    const transitionSeconds = championship.transition_seconds ?? 0;
+
+    const categories = await queryAll(
+      `SELECT c.id, c.name, c.gender, c.level
+       FROM categories c
+       WHERE c.championship_id = $1
+         AND EXISTS (SELECT 1 FROM teams t WHERE t.category_id = c.id)`,
+      [workout.championship_id]
     );
 
-    if (teams.length === 0) {
+    if (categories.length === 0) {
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: `Nenhuma equipe registrada na categoria ${category.name}`,
-        },
+        error: { code: 'VALIDATION_ERROR', message: 'Nenhuma equipe registrada neste campeonato' },
       });
     }
 
-    // Regerar apaga os heats desta prova/categoria. O CASCADE leva junto os
-    // heat_teams e, por tabela, os results já lançados. Sem esta trava, um
-    // clique acidental no botão "gerar baterias" zeraria a prova.
+    categories.sort((a, b) => categorySortKey(a) - categorySortKey(b));
+
+    // Lista achatada equipe-a-equipe, já na ordem final de disputa.
+    const assignments = [];
+    for (const category of categories) {
+      // eslint-disable-next-line no-await-in-loop
+      const teams = await queryAll('SELECT id, name FROM teams WHERE category_id = $1 ORDER BY id ASC', [
+        category.id,
+      ]);
+      for (const team of teams) {
+        assignments.push({ team, category });
+      }
+    }
+
+    // Time cap por categoria PRESENTE nesta prova — usado só pra saber quanto
+    // tempo cada bateria dura (a bateria só termina quando o cap da
+    // categoria mais lenta dentro dela expira).
+    const variants = await queryAll('SELECT category_id, time_cap_seconds FROM workout_variants WHERE workout_id = $1', [
+      workout_id,
+    ]);
+    const timeCapByCategory = new Map(variants.map((v) => [v.category_id, v.time_cap_seconds]));
+
     const existingResults = await queryOne(
       `SELECT COUNT(r.id)::int AS total
        FROM results r
        JOIN heat_teams ht ON ht.id = r.heat_team_id
        JOIN heats h ON h.id = ht.heat_id
-       WHERE h.workout_id = $1 AND h.category_id = $2`,
-      [workout_id, category_id]
+       WHERE h.workout_id = $1`,
+      [workout_id]
     );
 
     if (existingResults.total > 0 && !force) {
@@ -128,62 +173,91 @@ exports.generate = async (req, res, next) => {
         error: {
           code: 'RESULTS_EXIST',
           message:
-            `Já existem ${existingResults.total} resultado(s) lançado(s) nesta prova para ` +
-            `a categoria ${category.name}. Regerar as baterias apagaria esses resultados. ` +
-            `Envie force: true se for mesmo isso que você quer.`,
+            `Já existem ${existingResults.total} resultado(s) lançado(s) nesta prova. ` +
+            `Regerar as baterias apagaria esses resultados. Envie force: true se for mesmo isso que você quer.`,
         },
       });
     }
 
-    const numHeats = Math.ceil(teams.length / lanes);
-    const buckets = distributeTeams(teams, numHeats);
+    const chunks = chunkIntoHeats(assignments, lanes);
+
+    const heatPlans = chunks.map((chunk) => {
+      const categoryIds = [...new Set(chunk.map((a) => a.category.id))];
+      const caps = categoryIds.map((id) => timeCapByCategory.get(id));
+      const hasAllCaps = caps.every((c) => typeof c === 'number');
+      return { lanesUsed: chunk, durationSeconds: hasAllCaps ? Math.max(...caps) : null };
+    });
+
+    // Âncora: continua de onde a última bateria já agendada no campeonato
+    // (de QUALQUER prova) parou. Só cai pro início do campeonato se essa é a
+    // primeira bateria com horário calculado do evento inteiro. Isso é o que
+    // permite gerar prova por prova, em ordem, e sair com uma agenda contínua
+    // o dia todo — sem coordenar manualmente entre provas.
+    const previousAnchor = await queryOne(
+      `SELECT MAX(h.scheduled_time + (h.duration_seconds || ' seconds')::interval) AS last_end
+       FROM heats h
+       JOIN workouts w ON w.id = h.workout_id
+       WHERE w.championship_id = $1
+         AND h.workout_id != $2
+         AND h.scheduled_time IS NOT NULL
+         AND h.duration_seconds IS NOT NULL`,
+      [workout.championship_id, workout_id]
+    );
+
+    // O tempo de transição também vale entre a última bateria de uma prova e
+    // a primeira da próxima — baterias são sequenciais no dia inteiro, não só
+    // dentro da mesma prova. Sem somar aqui, gerar prova por prova comprimia
+    // esse intervalo (bug encontrado testando: heat final do WOD1 terminava
+    // e o heat inicial do WOD2 começava no mesmo instante, sem transição).
+    let startCursor = null;
+    if (previousAnchor.last_end) {
+      startCursor = new Date(new Date(previousAnchor.last_end).getTime() + transitionSeconds * 1000);
+    } else if (championship.start_time_str) {
+      startCursor = new Date(`${championship.date_str}T${championship.start_time_str}`);
+    }
+
+    const schedule = computeHeatSchedule(heatPlans, { startCursor, transitionSeconds });
 
     await client.query('BEGIN');
 
-    await client.query(
-      'DELETE FROM heats WHERE workout_id = $1 AND category_id = $2',
-      [workout_id, category_id]
-    );
+    await client.query('DELETE FROM heats WHERE workout_id = $1', [workout_id]);
 
     const createdHeats = [];
 
-    for (let i = 0; i < buckets.length; i += 1) {
+    for (let i = 0; i < heatPlans.length; i += 1) {
       const heatNumber = i + 1;
+      const plan = heatPlans[i];
+      const { scheduledTime } = schedule[i];
 
-      let scheduledTime = null;
-      if (start_time) {
-        const base = new Date(start_time);
-        if (Number.isNaN(base.getTime())) {
-          throw Object.assign(new Error('start_time inválido'), {
-            status: 400,
-            code: 'VALIDATION_ERROR',
-          });
-        }
-        const step = Number(interval_minutes) || 0;
-        scheduledTime = new Date(base.getTime() + i * step * 60_000);
-      }
-
+      // eslint-disable-next-line no-await-in-loop
       const heat = await client.query(
-        `INSERT INTO heats (workout_id, heat_number, category_id, scheduled_time)
+        `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, workout_id, heat_number, category_id, scheduled_time, status`,
-        [workout_id, heatNumber, category_id, scheduledTime]
+         RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
+        [workout_id, heatNumber, scheduledTime, plan.durationSeconds]
       );
 
       const heatRow = heat.rows[0];
       const lanesUsed = [];
 
-      for (let laneIndex = 0; laneIndex < buckets[i].length; laneIndex += 1) {
-        const team = buckets[i][laneIndex];
+      for (let laneIndex = 0; laneIndex < plan.lanesUsed.length; laneIndex += 1) {
+        const { team, category } = plan.lanesUsed[laneIndex];
         const laneNumber = laneIndex + 1;
 
+        // eslint-disable-next-line no-await-in-loop
         await client.query(
           `INSERT INTO heat_teams (heat_id, team_id, lane_number)
            VALUES ($1, $2, $3)`,
           [heatRow.id, team.id, laneNumber]
         );
 
-        lanesUsed.push({ lane_number: laneNumber, team_id: team.id, team_name: team.name });
+        lanesUsed.push({
+          lane_number: laneNumber,
+          team_id: team.id,
+          team_name: team.name,
+          category_id: category.id,
+          category_name: category.name,
+        });
       }
 
       createdHeats.push({
@@ -201,10 +275,10 @@ exports.generate = async (req, res, next) => {
       meta: {
         message: 'Baterias geradas com sucesso',
         workout: { id: workout.id, number: workout.workout_number, name: workout.name },
-        category: { id: category.id, name: category.name },
-        totalTeams: teams.length,
+        categoriesIncluded: categories.map((c) => ({ id: c.id, name: c.name })),
+        totalTeams: assignments.length,
         lanesPerHeat: lanes,
-        heatsCreated: numHeats,
+        heatsCreated: heatPlans.length,
         replacedExistingResults: existingResults.total > 0,
       },
     });
@@ -216,11 +290,12 @@ exports.generate = async (req, res, next) => {
   }
 };
 
-// GET /api/workouts/:workout_id/heats?category_id=3  (público)
+// GET /api/workouts/:workout_id/heats  (público)
+// Uma bateria não pertence mais a uma categoria só — cada raia carrega a
+// categoria da equipe que está nela, não a bateria como um todo.
 exports.getByWorkout = async (req, res, next) => {
   try {
     const { workout_id } = req.params;
-    const { category_id } = req.query;
 
     const workout = await queryOne('SELECT id FROM workouts WHERE id = $1', [workout_id]);
 
@@ -231,14 +306,11 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     const heats = await queryAll(
-      `SELECT h.id, h.workout_id, h.heat_number, h.category_id, c.name AS category_name,
-              h.scheduled_time, h.status
-       FROM heats h
-       JOIN categories c ON c.id = h.category_id
-       WHERE h.workout_id = $1
-         AND ($2::int IS NULL OR h.category_id = $2::int)
-       ORDER BY c.id ASC, h.heat_number ASC`,
-      [workout_id, category_id || null]
+      `SELECT id, workout_id, heat_number, scheduled_time, duration_seconds, status
+       FROM heats
+       WHERE workout_id = $1
+       ORDER BY heat_number ASC`,
+      [workout_id]
     );
 
     if (heats.length === 0) {
@@ -254,9 +326,11 @@ exports.getByWorkout = async (req, res, next) => {
     const heatIds = heats.map((h) => h.id);
     const lanes = await queryAll(
       `SELECT ht.id AS heat_team_id, ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
+              c.id AS category_id, c.name AS category_name,
               r.id AS result_id, r."place", r.raw_value, r.did_not_finish
        FROM heat_teams ht
        JOIN teams t ON t.id = ht.team_id
+       JOIN categories c ON c.id = t.category_id
        LEFT JOIN results r ON r.heat_team_id = ht.id
        WHERE ht.heat_id = ANY($1::int[])
        ORDER BY ht.lane_number ASC`,
@@ -322,7 +396,7 @@ exports.update = async (req, res, next) => {
            status         = COALESCE($2, status),
            updated_at     = CURRENT_TIMESTAMP
        WHERE id = $3
-       RETURNING id, workout_id, heat_number, category_id, scheduled_time, status`,
+       RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
       [scheduled_time ?? null, status ?? null, id]
     );
 
