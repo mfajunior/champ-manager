@@ -1,15 +1,19 @@
 const request = require('supertest');
 const app = require('../../src/app');
+const { createTestUser } = require('../helpers/testAuth');
 const { pool } = require('../../src/config/database');
 
 /**
- * leaderboardController só lê team_standings — quem escreve lá é o trigger
- * do Postgres, disparado pelo resultController (ver tests/integration/results.test.js).
- * O que este arquivo garante é a ponta de LEITURA: o filtro por categoria, e o
- * caso mais fácil de esquecer — campeonato com equipes cadastradas mas SEM
- * nenhum resultado lançado ainda não tem nenhuma linha em team_standings, e o
- * endpoint precisa avisar isso em vez de simplesmente devolver uma lista vazia
- * sem explicação.
+ * leaderboardController lê teams com LEFT JOIN em team_standings — quem
+ * escreve em team_standings é o trigger do Postgres, disparado pelo
+ * resultController (ver tests/integration/results.test.js). O que este
+ * arquivo garante é a ponta de LEITURA: o filtro por categoria, e o caso
+ * mais fácil de esquecer — campeonato com equipes cadastradas mas SEM
+ * nenhum resultado lançado ainda não tem NENHUMA linha em team_standings
+ * (a tabela cache só é escrita pelo trigger). Por isso a consulta parte de
+ * teams, não de team_standings: toda equipe cadastrada aparece desde já,
+ * com place null e total_score/workouts_completed em 0, até que exista um
+ * resultado de verdade.
  */
 describe('Leaderboard (integração com banco real)', () => {
   let token;
@@ -19,10 +23,7 @@ describe('Leaderboard (integração com banco real)', () => {
 
   beforeAll(async () => {
     const email = `jest-leader-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
-    const registro = await request(app)
-      .post('/api/auth/register')
-      .send({ email, password: 'jest12345', name: 'Jest Leaderboard' });
-    token = registro.body.data.token;
+    token = (await createTestUser({ email, name: 'Jest Leaderboard' })).token;
 
     const campeonato = await request(app)
       .post('/api/championships')
@@ -46,10 +47,18 @@ describe('Leaderboard (integração com banco real)', () => {
         scoring_type: 'time',
       });
 
+    // lanes_per_heat virou parâmetro global do campeonato (migration 005) —
+    // precisa ser definido antes de gerar baterias, não é mais enviado na
+    // chamada de geração.
+    await request(app)
+      .put(`/api/championships/${championshipId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ lanes_per_heat: 4 });
+
     await request(app)
       .post(`/api/workouts/${workout.body.data.id}/heats`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ category_id: categoryId, lanes_per_heat: 4 });
+      .send({});
 
     const heats = await request(app).get(`/api/workouts/${workout.body.data.id}/heats`);
     heatTeamId = heats.body.data[0].teams[0].heat_team_id;
@@ -72,14 +81,18 @@ describe('Leaderboard (integração com banco real)', () => {
     expect(res.status).toBe(404);
   });
 
-  test('antes de qualquer resultado lançado, leaderboard vem vazio COM mensagem explicativa', async () => {
+  test('antes de qualquer resultado lançado, a equipe cadastrada já aparece (sem posição)', async () => {
     const res = await request(app).get(`/api/leaderboard?championship_id=${championshipId}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data).toHaveLength(0);
-    // Não é só "lista vazia": o cliente precisa saber que é porque ninguém
-    // competiu ainda, não que o endpoint está quebrado.
-    expect(res.body.meta.message).toMatch(/nenhum resultado/i);
+    // Equipe Solo já existe (criada no beforeAll) mesmo sem nenhum resultado
+    // lançado ainda — o cliente precisa poder ver quem já está inscrito.
+    expect(res.body.data).toHaveLength(1);
+    expect(res.body.data[0].team_name).toBe('Equipe Solo');
+    expect(res.body.data[0].place).toBeNull();
+    expect(res.body.data[0].total_score).toBe(0);
+    expect(res.body.data[0].workouts_completed).toBe(0);
+    expect(res.body.meta.message).toMatch(/sucesso/i);
   });
 
   test('depois do primeiro resultado, a equipe aparece no leaderboard em 1º', async () => {
