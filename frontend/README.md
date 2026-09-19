@@ -1,4 +1,4 @@
-# Champy — Frontend
+# ScoreUp — Frontend
 
 Painel do organizador (login, campeonatos, equipes, provas, baterias, lançamento
 de resultados) e o placar público ao vivo. Consome a API em `../backend`.

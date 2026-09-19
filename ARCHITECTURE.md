@@ -1,4 +1,4 @@
-# 🏗️ Champy — Arquitetura
+# 🏗️ ScoreUp — Arquitetura
 
 Este documento é a referência técnica do backend: schema atual do banco,
 camadas da API e os fluxos principais. As decisões de projeto — **por quê**
@@ -54,8 +54,10 @@ Um request de escrita passa por até três camadas antes de gravar algo,
 cada uma pega um tipo de erro diferente:
 
 1. **Rate limiting** (`middleware/rateLimiter.js`) — `authLimiter` (10
-   requisições / 15 min) nas rotas de login e registro, `apiLimiter` (300 /
-   15 min) no resto de `/api`. Desligado quando `NODE_ENV=test`.
+   requisições / 15 min) na rota de login, `apiLimiter` (300 /
+   15 min) no resto de `/api`. Desligado quando `NODE_ENV=test`. (Não existe
+   mais rota de registro público — só o operador já cadastrado consegue
+   logar; ver seção sobre autenticação.)
 2. **Joi** (`middleware/validate.js` + `validations/schemas.js`) — checa
    *forma*: campo obrigatório presente, tipo certo (número vs string), enum
    válido (`scoring_type` só pode ser `time`/`reps`/`load`). Roda antes do

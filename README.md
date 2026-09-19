@@ -1,4 +1,4 @@
-# 🏆 Champy - Gerenciador de Campeonatos de CrossFit
+# 🏆 ScoreUp - Gerenciador de Campeonatos de CrossFit
 
 [![Backend Tests](https://github.com/mfajunior/champ-manager/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/mfajunior/champ-manager/actions/workflows/backend-tests.yml)
 
@@ -207,26 +207,53 @@ cp .env.example .env    # aponta para http://localhost:5000 por padrão
 npm run dev             # abre em http://localhost:3000
 ```
 
-Não existe usuário nem campeonato pré-cadastrado — crie sua conta pela própria tela (`/register`).
+Não existe usuário nem campeonato pré-cadastrado, e não existe mais tela de cadastro (o app tem um
+único operador — o organizador — sem autocadastro público). Crie sua conta direto no banco:
+
+```bash
+cd backend
+npm run create-user -- "seu@email.com" "sua-senha" "Seu Nome"
+```
 
 ### Acessando pelo celular (mesma rede Wi-Fi)
 
-O Vite já escuta em `0.0.0.0` (não só `localhost`), então dá para abrir o painel e o placar de
-qualquer aparelho na mesma rede:
+O Vite já escuta em `0.0.0.0` (não só `localhost`), e o proxy configurado em `vite.config.ts`
+encaminha `/api` e `/socket.io` pro backend do lado do servidor — o navegador de quem acessa nunca
+precisa saber que a porta 5000 existe. Isso significa que não é mais preciso mexer em
+`VITE_API_URL` nem em `CORS_ORIGIN` só para abrir pelo celular:
 
 1. Descubra o IP local do seu PC (Windows: `ipconfig`, procure "Endereço IPv4" no adaptador Wi-Fi —
    algo como `192.168.x.x`)
-2. Em `frontend/.env`, mude `VITE_API_URL` para `http://<seu-IP>:5000` — o celular executa esse JS
-   localmente, então "localhost" ali apontaria para o próprio celular, não para o seu PC
-3. No `.env` da raiz, acrescente essa origem em `CORS_ORIGIN`, separada por vírgula:
-   `CORS_ORIGIN=http://localhost:3000,http://<seu-IP>:3000` — sem isso o navegador do celular
-   bloqueia a resposta da API por CORS
-4. Reinicie o backend (`docker compose restart backend`) e o `npm run dev` do frontend — os dois só
-   leem o `.env` na inicialização
-5. No celular, na mesma rede Wi-Fi, acesse `http://<seu-IP>:3000`
+2. No celular, na mesma rede Wi-Fi, acesse `http://<seu-IP>:3000`
 
 Se não abrir mesmo com o IP certo, o suspeito nº 1 é o Firewall do Windows bloqueando conexão de
-entrada nas portas 3000/5000 vindas de outro aparelho.
+entrada na porta 3000 vinda de outro aparelho (a 5000 nem precisa mais estar acessível de fora —
+só o processo do Vite, na própria máquina, fala com ela).
+
+### Publicando temporariamente para acesso externo (túnel)
+
+Pra alguém fora da sua rede (ex.: um cliente) acessar sem você contratar hospedagem ainda, dá pra
+usar um túnel: um programa que cria uma URL pública (tipo `https://algo-aleatorio.trycloudflare.com`)
+e redireciona pro seu `localhost`. Só funciona enquanto o túnel, o `npm run dev` do frontend e o
+`docker compose` do backend estiverem rodando na sua máquina — se qualquer um deles cair, o link para
+de funcionar.
+
+Usando [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+(gratuito, sem precisar criar conta pra um túnel temporário):
+
+1. Instale o `cloudflared` ([instruções por sistema operacional](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/))
+2. Com o backend (`docker compose up`) e o frontend (`npm run dev`, dentro de `frontend/`) já
+   rodando, abra um terminal à parte e rode:
+   ```bash
+   cloudflared tunnel --url http://localhost:3000
+   ```
+3. O terminal mostra uma URL `https://....trycloudflare.com` — é essa que você manda pro cliente
+4. Só o frontend (porta 3000) precisa de túnel: como ele já fala com o backend via proxy (ver acima),
+   uma URL só é suficiente pras duas pontas funcionarem
+
+Essa URL muda toda vez que você reinicia o `cloudflared` — se isso for um problema (cliente
+guardando o link, por exemplo), o próximo passo natural é uma hospedagem de verdade (ver seção
+"Deployment" abaixo), que dá uma URL fixa e não depende do seu PC ficar ligado.
 
 ### Acesse
 
@@ -274,7 +301,8 @@ Colocação de cada prova e ranking final são recalculados automaticamente pelo
 - ✅ SQL Injection prevenido (queries sempre parametrizadas, nunca concatenação de string)
 - ✅ Segredos fora do código-fonte: `docker-compose.yml` exige `DB_PASSWORD`, `JWT_SECRET` etc. via `.env` não versionado. Antes eram valores fixos direto no arquivo versionado — foram rotacionados ao corrigir isso, porque só remover do arquivo não invalida um segredo que já esteve no histórico do git
 - ✅ Validação de entrada com Joi (`middleware/validate.js` + `validations/schemas.js`) — um schema por rota de escrita, checado antes do controller. Substituiu a validação manual campo a campo (`if (!x) return res.status(400)...`), que não pegava tipo errado — ex.: um número mandado como texto só quebraria lá na frente, na query SQL, com um erro de banco confuso em vez de um 400 claro
-- ✅ Rate limiting (`express-rate-limit`, `middleware/rateLimiter.js`) — limite baixo (10 tentativas / 15 min, por IP) em `/api/auth/login` e `/api/auth/register`, contra força bruta e enumeração de e-mail; limite mais alto (300 / 15 min) no resto da API, contra abuso grosseiro sem incomodar uso normal
+- ✅ Rate limiting (`express-rate-limit`, `middleware/rateLimiter.js`) — limite baixo (10 tentativas / 15 min, por IP) em `/api/auth/login`, contra força bruta e enumeração de e-mail; limite mais alto (300 / 15 min) no resto da API, contra abuso grosseiro sem incomodar uso normal
+- ✅ Sem autocadastro público — `/api/auth/register` foi removido de propósito: este sistema tem um único operador (o organizador), sem separação de papel/role entre usuários, então manter cadastro aberto deixava qualquer pessoa que descobrisse a rota criar uma conta com acesso total. Conta nova se cria direto no banco (`npm run create-user`)
 
 ### Não implementada
 - ❌ 2FA (MFA), OAuth2, criptografia de dados sensíveis em repouso — fora de escopo, sem pretensão de implementar.
