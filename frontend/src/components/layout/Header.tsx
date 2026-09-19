@@ -11,12 +11,12 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-40 flex h-20 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur">
-      <Link to="/" className="font-display text-2xl uppercase tracking-wide">
-        Champy
+      <Link to="/admin" className="inline-block">
+        <img src="/logo-horizontal.png" alt="ScoreUp" className="h-8 w-auto" />
       </Link>
 
       <nav className="flex items-center gap-6">
-        <NavLink to="/" end className={navLinkClass}>
+        <NavLink to="/admin" end className={navLinkClass}>
           Campeonatos
         </NavLink>
         {user && (

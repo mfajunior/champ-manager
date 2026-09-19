@@ -50,7 +50,7 @@ const startServer = async () => {
   server.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════╗
-║      🏆 CHAMPY BACKEND STARTED         ║
+║      🏆 SCOREUP BACKEND STARTED        ║
 ╠════════════════════════════════════════╣
 ║ Environment: ${NODE_ENV.toUpperCase().padEnd(24)} ║
 ║ Port:        ${PORT.toString().padEnd(26)} ║
