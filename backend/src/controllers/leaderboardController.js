@@ -13,12 +13,16 @@ const { queryOne, queryAll } = require('../config/database');
  * final é sempre team_id, então a lista é sempre 1, 2, 3... sem buracos nem
  * posições repetidas.
  *
- * Limitação conhecida: recalculate_standings só roda quando um resultado é
- * inserido/atualizado/apagado. Um campeonato com times cadastrados mas ainda
- * sem nenhum resultado lançado não tem linha nenhuma em team_standings —
- * o leaderboard volta vazio até a primeira prova ser pontuada, mesmo que os
- * times já existam. Não é bug deste endpoint; é a tabela cache ainda não ter
- * sido populada uma primeira vez.
+ * A consulta parte de teams (LEFT JOIN team_standings), não de team_standings
+ * direto: a tabela cache só é escrita pelo trigger, então antes do primeiro
+ * resultado do campeonato inteiro ela não tem NENHUMA linha, mesmo com times
+ * já cadastrados. Partindo de teams, toda equipe cadastrada aparece desde
+ * já — com place null e total_score/workouts_completed em 0 até que exista
+ * ao menos um resultado em algum lugar do campeonato (o que aciona o
+ * trigger e passa a preencher o "place" de verdade, inclusive das que ainda
+ * não pontuaram — essas ficam por último dentro da categoria, ver migration
+ * 002). Antes disso, dá pra ver quem já está inscrito mesmo sem nada
+ * pontuado ainda.
  */
 
 // GET /api/leaderboard?championship_id=1&category_id=3  (público)
@@ -70,16 +74,22 @@ exports.getByChampionship = async (req, res, next) => {
     }
 
     // $2 nulo desliga o filtro de categoria, igual ao padrão usado em results/heats.
+    // LEFT JOIN team_standings (não JOIN): equipe sem linha ainda na tabela
+    // cache continua aparecendo, só com place null e total_score/
+    // workouts_completed em 0 (COALESCE) em vez de sumir da lista.
     const standings = await queryAll(
-      `SELECT ts.id, ts.team_id, t.name AS team_name,
-              ts.category_id, c.name AS category_name, c.gender, c.level,
-              ts.total_score, ts."place", ts.workouts_completed, ts.updated_at
-       FROM team_standings ts
-       JOIN teams t ON t.id = ts.team_id
-       JOIN categories c ON c.id = ts.category_id
-       WHERE ts.championship_id = $1
-         AND ($2::int IS NULL OR ts.category_id = $2::int)
-       ORDER BY c.id ASC, ts."place" ASC`,
+      `SELECT t.id AS team_id, t.name AS team_name,
+              c.id AS category_id, c.name AS category_name, c.gender, c.level,
+              COALESCE(ts.total_score, 0) AS total_score,
+              ts."place",
+              COALESCE(ts.workouts_completed, 0) AS workouts_completed,
+              ts.updated_at
+       FROM teams t
+       JOIN categories c ON c.id = t.category_id
+       LEFT JOIN team_standings ts ON ts.team_id = t.id AND ts.championship_id = t.championship_id
+       WHERE t.championship_id = $1
+         AND ($2::int IS NULL OR t.category_id = $2::int)
+       ORDER BY c.id ASC, (ts."place" IS NULL) ASC, ts."place" ASC, t.name ASC`,
       [championship_id, category_id || null]
     );
 
@@ -89,7 +99,7 @@ exports.getByChampionship = async (req, res, next) => {
         message:
           standings.length > 0
             ? 'Leaderboard recuperado com sucesso'
-            : 'Nenhum resultado lançado ainda neste campeonato — leaderboard vazio até a primeira prova ser pontuada',
+            : 'Nenhuma equipe cadastrada ainda neste campeonato',
         total: standings.length,
       },
     });
