@@ -1,5 +1,5 @@
 const bcryptjs = require('bcryptjs');
-const { query, queryOne } = require('../config/database');
+const { queryOne } = require('../config/database');
 const { generateToken } = require('../middleware/auth');
 
 /**
@@ -13,59 +13,11 @@ const { generateToken } = require('../middleware/auth');
  */
 
 /**
- * Registra novo operador (usuário)
- * POST /api/auth/register
- */
-exports.register = async (req, res, next) => {
-  try {
-    // Formato do corpo (email válido, senha com tamanho mínimo, name presente)
-    // já foi validado pelo middleware `validate(schemas.authRegister)` na rota.
-    const { email, password, name } = req.body;
-
-    const existingUser = await queryOne('SELECT id FROM users WHERE email = $1', [
-      email,
-    ]);
-
-    if (existingUser) {
-      // 409 e não 400: a requisição está bem formada, o conflito é com o estado
-      // atual do servidor. O cliente sabe que precisa tentar outro email, não
-      // corrigir o corpo da requisição.
-      return res.status(409).json({
-        error: {
-          code: 'USER_EXISTS',
-          message: 'Email já registrado',
-        },
-      });
-    }
-
-    const hashedPassword = await bcryptjs.hash(password, 10);
-
-    const result = await query(
-      `INSERT INTO users (email, password_hash, name)
-       VALUES ($1, $2, $3)
-       RETURNING id, email, name`,
-      [email, hashedPassword, name]
-    );
-
-    const user = result.rows[0];
-
-    res.status(201).json({
-      data: {
-        user,
-        token: generateToken(user),
-      },
-      meta: {
-        message: 'Usuário registrado com sucesso',
-      },
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
  * Login de operador
  * POST /api/auth/login
+ *
+ * Não existe mais POST /api/auth/register: contas são criadas direto no
+ * banco (ver README/DEVELOPMENT.md), não por autocadastro público.
  */
 exports.login = async (req, res, next) => {
   try {
