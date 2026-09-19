@@ -3,7 +3,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { ResultHistoryModal } from './ResultHistoryModal';
 import { useCreateResult, useDeleteResult, useUpdateResult } from '../../hooks/useResults';
 import { getErrorMessage } from '../../lib/errors';
-import { SCORING_TYPE_UNIT } from '../../lib/scoring';
+import { SCORING_TYPE_UNIT, formatResultDisplay, formatSecondsAsClock, parseClockToSeconds } from '../../lib/scoring';
 import type { HeatLane, ScoringType } from '../../types';
 
 export function LaneRow({
@@ -16,8 +16,13 @@ export function LaneRow({
   scoringType: ScoringType;
 }) {
   const hasResult = lane.result_id !== null;
+  const isTimeScoring = scoringType === 'time';
   const [isEditing, setIsEditing] = useState(false);
-  const [rawValue, setRawValue] = useState(lane.raw_value ?? '');
+  // Pra prova 'time', o campo já abre em mm:ss (é o que a pessoa vai
+  // corrigir), não em segundos crus — raw_value sempre chega em segundos.
+  const [rawValue, setRawValue] = useState(() =>
+    isTimeScoring && lane.raw_value ? formatSecondsAsClock(lane.raw_value) : lane.raw_value ?? ''
+  );
   const [didNotFinish, setDidNotFinish] = useState(lane.did_not_finish ?? false);
   const [error, setError] = useState<string | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
@@ -31,17 +36,32 @@ export function LaneRow({
 
   const handleSave = async () => {
     setError(null);
+
+    let numericValue: number | undefined;
+    if (!didNotFinish) {
+      if (isTimeScoring) {
+        const parsed = parseClockToSeconds(rawValue);
+        if (parsed === null) {
+          setError('Formato inválido — use mm:ss (ex.: 3:45)');
+          return;
+        }
+        numericValue = parsed;
+      } else {
+        numericValue = Number(rawValue);
+      }
+    }
+
     try {
       if (hasResult && lane.result_id) {
         await updateResult.mutateAsync({
           id: lane.result_id,
-          raw_value: didNotFinish ? undefined : Number(rawValue),
+          raw_value: numericValue,
           did_not_finish: didNotFinish,
         });
       } else {
         await createResult.mutateAsync({
           heat_team_id: lane.heat_team_id,
-          raw_value: didNotFinish ? undefined : Number(rawValue),
+          raw_value: numericValue,
           did_not_finish: didNotFinish,
         });
       }
@@ -51,20 +71,30 @@ export function LaneRow({
     }
   };
 
+  const display = hasResult && lane.raw_value ? formatResultDisplay(lane.raw_value, scoringType) : null;
+
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
-      <td className="px-3 py-2 text-sm">{lane.team_name}</td>
+      <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
+      {/* Categoria da equipe, não da bateria: uma bateria pode misturar
+          categorias (ver migration 005), então isso só faz sentido por raia.
+          Coluna própria (não mais colada no nome da equipe) — nome variando
+          de tamanho empurrava a categoria pra uma posição diferente em cada
+          linha; como coluna, ela sempre começa no mesmo x. */}
+      <td className="truncate px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {lane.category_name}
+      </td>
 
       {!isEditing && (
         <>
           <td className="px-3 py-2 text-sm">
             {hasResult ? (
               lane.did_not_finish ? (
-                <span className="font-semibold text-destructive">DNF</span>
+                <span className="font-semibold text-destructive">WO</span>
               ) : (
                 <span>
-                  {lane.raw_value} <span className="text-muted-foreground">{SCORING_TYPE_UNIT[scoringType]}</span>
+                  {display?.value} {display?.unit && <span className="text-muted-foreground">{display.unit}</span>}
                 </span>
               )
             ) : (
@@ -102,15 +132,19 @@ export function LaneRow({
                 checked={didNotFinish}
                 onChange={(e) => setDidNotFinish(e.target.checked)}
               />
-              DNF
+              WO
             </label>
             {!didNotFinish && (
               <input
-                type="number"
-                step="0.01"
-                placeholder={SCORING_TYPE_UNIT[scoringType]}
+                type={isTimeScoring ? 'text' : 'number'}
+                step={isTimeScoring ? undefined : '0.01'}
+                placeholder={isTimeScoring ? 'mm:ss' : SCORING_TYPE_UNIT[scoringType]}
                 value={rawValue}
-                onChange={(e) => setRawValue(e.target.value)}
+                // maxLength não tem efeito em input type="number" (o
+                // navegador ignora), então o corte de 5 caracteres é feito
+                // no onChange — funciona igual pros dois tipos de input.
+                maxLength={5}
+                onChange={(e) => setRawValue(e.target.value.slice(0, 5))}
                 className="w-32 border border-border px-2 py-1 text-sm"
               />
             )}
@@ -155,6 +189,7 @@ export function LaneRow({
         <ResultHistoryModal
           heatTeamId={lane.heat_team_id}
           teamName={lane.team_name}
+          scoringType={scoringType}
           onClose={() => setIsViewingHistory(false)}
         />
       )}

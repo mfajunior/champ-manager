@@ -3,6 +3,8 @@ import { Spinner } from '../ui/Spinner';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { useResultHistory } from '../../hooks/useResults';
 import { getErrorMessage } from '../../lib/errors';
+import { formatResultDisplay } from '../../lib/scoring';
+import type { ScoringType } from '../../types';
 
 const ACTION_LABELS: Record<string, string> = {
   created: 'Lançado',
@@ -13,10 +15,12 @@ const ACTION_LABELS: Record<string, string> = {
 export function ResultHistoryModal({
   heatTeamId,
   teamName,
+  scoringType,
   onClose,
 }: {
   heatTeamId: number;
   teamName: string;
+  scoringType: ScoringType;
   onClose: () => void;
 }) {
   const history = useResultHistory(heatTeamId);
@@ -46,7 +50,12 @@ export function ResultHistoryModal({
                 {entry.did_not_finish
                   ? 'DNF (não terminou)'
                   : entry.raw_value !== null
-                    ? `Valor: ${entry.raw_value}${entry.place ? ` · colocação ${entry.place}º` : ''}`
+                    ? (() => {
+                        const display = formatResultDisplay(entry.raw_value, scoringType);
+                        return `Valor: ${display.value}${display.unit ? ` ${display.unit}` : ''}${
+                          entry.place ? ` · colocação ${entry.place}º` : ''
+                        }`;
+                      })()
                     : '—'}
               </p>
               <p className="mt-0.5 text-xs text-muted-foreground">
