@@ -2,6 +2,7 @@ const http = require('http');
 const { io: ioClient } = require('socket.io-client');
 const request = require('supertest');
 const app = require('../../src/app');
+const { createTestUser } = require('../helpers/testAuth');
 const { attachSocket } = require('../../src/socket');
 const { pool } = require('../../src/config/database');
 
@@ -37,10 +38,7 @@ describe('Broadcast do leaderboard via WebSocket (integração)', () => {
     port = server.address().port;
 
     const email = `jest-ws-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
-    const registro = await request(app)
-      .post('/api/auth/register')
-      .send({ email, password: 'jest12345', name: 'Jest WS' });
-    token = registro.body.data.token;
+    token = (await createTestUser({ email, name: 'Jest WS' })).token;
 
     const campeonato = await request(app)
       .post('/api/championships')
@@ -64,10 +62,16 @@ describe('Broadcast do leaderboard via WebSocket (integração)', () => {
         scoring_type: 'time',
       });
 
+    // lanes_per_heat virou parâmetro global do campeonato (migration 005).
+    await request(app)
+      .put(`/api/championships/${championshipId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ lanes_per_heat: 4 });
+
     await request(app)
       .post(`/api/workouts/${workout.body.data.id}/heats`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ category_id: categoryId, lanes_per_heat: 4 });
+      .send({});
 
     const heats = await request(app).get(`/api/workouts/${workout.body.data.id}/heats`);
     heatTeamId = heats.body.data[0].teams[0].heat_team_id;

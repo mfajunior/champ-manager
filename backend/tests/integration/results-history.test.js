@@ -1,5 +1,6 @@
 const request = require('supertest');
 const app = require('../../src/app');
+const { createTestUser } = require('../helpers/testAuth');
 const { pool } = require('../../src/config/database');
 
 /**
@@ -20,10 +21,7 @@ describe('Histórico de auditoria de resultados (integração com banco real)', 
 
   beforeAll(async () => {
     const email = `jest-history-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
-    const registro = await request(app)
-      .post('/api/auth/register')
-      .send({ email, password: 'jest12345', name: 'Jest History' });
-    token = registro.body.data.token;
+    token = (await createTestUser({ email, name: 'Jest History' })).token;
 
     const campeonato = await request(app)
       .post('/api/championships')
@@ -47,10 +45,16 @@ describe('Histórico de auditoria de resultados (integração com banco real)', 
         scoring_type: 'time',
       });
 
+    // lanes_per_heat virou parâmetro global do campeonato (migration 005).
+    await request(app)
+      .put(`/api/championships/${championshipId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ lanes_per_heat: 4 });
+
     await request(app)
       .post(`/api/workouts/${workout.body.data.id}/heats`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ category_id: categoryId, lanes_per_heat: 4 });
+      .send({});
 
     const heats = await request(app).get(`/api/workouts/${workout.body.data.id}/heats`);
     heatTeamId = heats.body.data[0].teams[0].heat_team_id;
