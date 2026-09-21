@@ -28,7 +28,7 @@ export const SCORING_TYPE_UNIT: Record<ScoringType, string> = {
 // como inteiro). Number() descarta os zeros à direita sem arredondar o valor
 // de verdade: "212.00" -> "212", mas "62.50" (kg) continua "62.5", não vira
 // "62" nem "63".
-export function formatRawValue(rawValue: string): string {
+function formatRawValue(rawValue: string): string {
   return String(Number(rawValue));
 }
 
