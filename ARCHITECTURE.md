@@ -43,8 +43,10 @@ ele documenta o estado atual do sistema.
 └───────────────────────────────────────────────────────────┘
 ```
 
-Frontend: ainda não iniciado. Todo o backend abaixo é consumível hoje via
-Postman/Insomnia ou pelo `smoke-test-results.ps1` na raiz do repo.
+O frontend (painel do organizador e placar público) vive em `frontend/` e
+consome tudo que está descrito abaixo. Para exercitar a API sem passar por
+ele, use Postman/Insomnia ou leia `backend/tests/integration/`, onde cada
+chamada aparece com corpo e resposta esperada.
 
 ---
 

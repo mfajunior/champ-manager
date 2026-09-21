@@ -270,7 +270,7 @@ guardando o link, por exemplo), o próximo passo natural é uma hospedagem de ve
 
 - **Frontend**: http://localhost:3000
 - **API Health**: http://localhost:5000/health
-- **Endpoints**: veja `ARCHITECTURE.md` para o schema completo e `smoke-test*.ps1` na raiz do projeto para exemplos reais de cada chamada
+- **Endpoints**: veja `ARCHITECTURE.md` para o schema completo e `backend/tests/integration/` para exemplos reais de cada chamada (é a suíte que roda no CI, então os exemplos não envelhecem sem alguém perceber)
 
 ---
 
@@ -342,16 +342,13 @@ backend/tests/
 └── unit/          # heatController, resultController, workoutController
 ```
 
-Os scripts PowerShell (`smoke-test*.ps1`, na raiz do projeto) continuam no repositório como
-validação manual complementar — foram os primeiros testes escritos pro projeto, antes da suíte
-Jest, e ainda servem pra checar o fluxo contra um servidor já rodando, sem precisar subir e derrubar
-o app a cada execução como o Jest faz:
+Os scripts PowerShell que existiam na raiz (`smoke-test*.ps1`) foram removidos: eram os primeiros
+testes do projeto, anteriores à suíte Jest, e pararam de funcionar quando o autocadastro foi
+removido e a migration 005 mudou os parâmetros de geração de baterias. Os mesmos fluxos estão
+cobertos em `backend/tests/integration/`, que roda no CI.
 
-```powershell
-.\smoke-test.ps1              # auth, campeonatos, equipes, provas, baterias
-.\smoke-test-results.ps1      # lançamento de resultado, empate, DNF, correção e recálculo
-.\smoke-test-leaderboard.ps1  # scoring_type e leaderboard por categoria
-```
+Para checar o broadcast do WebSocket contra um servidor já rodando, sem subir e derrubar o app,
+`backend/test-websocket.js` continua disponível.
 
 ### Frontend
 
