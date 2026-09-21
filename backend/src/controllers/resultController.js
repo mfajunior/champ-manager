@@ -1,4 +1,5 @@
 const { query, queryOne, queryAll } = require('../config/database');
+const { fetchStandings } = require('../models/standings');
 
 /**
  * O organizador lança apenas o desempenho bruto (tempo, reps ou carga) ou
@@ -64,19 +65,11 @@ const broadcastLeaderboard = async (req, heatTeamId) => {
 
     if (!context) return;
 
-    // Mesma forma de consulta do leaderboardController, sem filtro de
+    // Mesma função que GET /api/leaderboard usa (models/standings.js): o
+    // placar público joga a resposta do HTTP e a do socket no mesmo cache,
+    // então os dois precisam devolver a mesma forma de linha. Sem filtro de
     // categoria — o campeonato inteiro é o que a sala do socket representa.
-    const standings = await queryAll(
-      `SELECT ts.id, ts.team_id, t.name AS team_name,
-              ts.category_id, c.name AS category_name,
-              ts.total_score, ts."place", ts.workouts_completed, ts.updated_at
-       FROM team_standings ts
-       JOIN teams t ON t.id = ts.team_id
-       JOIN categories c ON c.id = ts.category_id
-       WHERE ts.championship_id = $1
-       ORDER BY c.id ASC, ts."place" ASC`,
-      [context.championship_id]
-    );
+    const standings = await fetchStandings(context.championship_id);
 
     broadcast(context.championship_id, standings);
   } catch (error) {
