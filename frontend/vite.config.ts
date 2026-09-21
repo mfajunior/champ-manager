@@ -1,5 +1,26 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type ProxyOptions } from 'vite'
+
+
+// changeOrigin (abaixo) reescreve só o cabeçalho Host da requisição
+// encaminhada — o Origin do navegador segue intacto até o backend. Acessando
+// por um túnel, o corsOriginChecker (backend/src/config/cors.js) recebe
+// "https://algo.trycloudflare.com", que não está em CORS_ORIGIN, e recusa a
+// requisição: "Origem não permitida pelo CORS". Só aparecia no login porque
+// navegador não manda Origin em GET de mesma origem — só em POST/PUT/DELETE.
+//
+// A requisição Vite -> backend é servidor-a-servidor: não há navegador nem
+// origem a declarar nela, e o próprio corsOriginChecker já libera requisição
+// sem Origin (curl, app nativo). Remover o cabeçalho descreve essa verdade e
+// vale pra qualquer host; acrescentar a URL do túnel em CORS_ORIGIN
+// resolveria só até o próximo reinício do cloudflared, que sorteia outra.
+//
+// proxyReq cobre as chamadas HTTP (/api e o handshake em polling do
+// socket.io); proxyReqWs cobre o upgrade para WebSocket.
+const stripBrowserOrigin: ProxyOptions['configure'] = (proxy) => {
+  proxy.on('proxyReq', (proxyReq) => proxyReq.removeHeader('origin'));
+  proxy.on('proxyReqWs', (proxyReq) => proxyReq.removeHeader('origin'));
+};
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -41,11 +62,13 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
+        configure: stripBrowserOrigin,
       },
       '/socket.io': {
         target: 'http://localhost:5000',
         ws: true,
         changeOrigin: true,
+        configure: stripBrowserOrigin,
       },
     },
   },
