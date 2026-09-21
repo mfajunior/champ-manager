@@ -48,7 +48,7 @@ export function ResultHistoryModal({
               </div>
               <p className="mt-1 text-foreground">
                 {entry.did_not_finish
-                  ? 'DNF (não terminou)'
+                  ? 'WO (não terminou)'
                   : entry.raw_value !== null
                     ? (() => {
                         const display = formatResultDisplay(entry.raw_value, scoringType);
