@@ -182,14 +182,25 @@ cp .env.example .env
 # Sobe Postgres e o backend
 docker compose up -d
 
-# Primeira vez rodando o projeto: aplica as migrations, na ordem
-docker compose cp backend/migrations/. postgres:/tmp/migrations
-docker compose exec postgres sh -c 'for f in /tmp/migrations/*.sql; do psql -U $POSTGRES_USER -d $POSTGRES_DB -f "$f"; done'
+# OBRIGATÓRIO: aplica as migrations pendentes
+cd backend && npm install && npm run migrate && cd ..
 
 docker compose restart backend
 ```
 
 Confirma que subiu: `http://localhost:5000/health` deve responder `{"status":"ok",...}`.
+
+O `npm run migrate` não é opcional nem só da primeira vez. O `docker-compose.yml` monta
+apenas `001-initial-schema.sql` em `docker-entrypoint-initdb.d`, então um banco novo nasce
+no schema de 2023 — com `heats.category_id`, coluna que a migration 005 removeu — e o app
+quebra de formas confusas até as migrations seguintes rodarem. Vale o mesmo depois de dar
+`git pull` numa branch que traga migration nova.
+
+Rode sempre por esse script, nunca aplicando os `.sql` na mão com `psql`: ele registra cada
+arquivo aplicado em `schema_migrations` e executa cada um exatamente uma vez. Reaplicar tudo
+do zero num banco já migrado quebra — a 002 cria um índice sobre `heats.category_id`, que a
+005 apaga —, e foi justamente esse bug que deu origem ao script (ver o comentário no topo de
+`backend/scripts/migrate.js`).
 
 Para desenvolver o backend com hot-reload, sem rebuildar o container a cada mudança, é possível também
 subir só o banco (`docker compose up -d postgres`) e rodar o backend direto no host com
