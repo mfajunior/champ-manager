@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import type { Championship } from '../types';
 
-export const championshipKeys = {
+const championshipKeys = {
   all: ['championships'] as const,
   detail: (id: number) => ['championships', id] as const,
 };
