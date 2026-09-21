@@ -139,14 +139,30 @@ exports.generate = async (req, res, next) => {
 
     categories.sort((a, b) => categorySortKey(a) - categorySortKey(b));
 
+    // Todas as equipes das categorias envolvidas numa query só. Antes era
+    // uma query por categoria dentro do loop (5 idas ao banco com as
+    // categorias padrão) pra montar uma lista que é usada de uma vez.
+    //
+    // Quem decide a ordem de disputa continua sendo o JS, não o ORDER BY: a
+    // sequência entre categorias vem de `categories` (já ordenada por
+    // categorySortKey acima) e, dentro de cada uma, de id ASC. Por isso as
+    // linhas são agrupadas por categoria antes de achatar — um ORDER BY
+    // category_id no SQL ordenaria por id da categoria, que não é a ordem de
+    // disputa.
+    const teamRows = await queryAll(
+      'SELECT id, name, category_id FROM teams WHERE category_id = ANY($1::int[]) ORDER BY id ASC',
+      [categories.map((c) => c.id)]
+    );
+
+    const teamsByCategory = teamRows.reduce((acc, team) => {
+      (acc[team.category_id] ||= []).push(team);
+      return acc;
+    }, {});
+
     // Lista achatada equipe-a-equipe, já na ordem final de disputa.
     const assignments = [];
     for (const category of categories) {
-      // eslint-disable-next-line no-await-in-loop
-      const teams = await queryAll('SELECT id, name FROM teams WHERE category_id = $1 ORDER BY id ASC', [
-        category.id,
-      ]);
-      for (const team of teams) {
+      for (const team of teamsByCategory[category.id] || []) {
         assignments.push({ team, category });
       }
     }
