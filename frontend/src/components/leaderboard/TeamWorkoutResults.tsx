@@ -39,7 +39,7 @@ export function TeamWorkoutResults({ teamId }: { teamId: number }) {
         {data.workouts.map((workout) => {
           // Sem heat_team_id nenhum pra essa prova (nem bateria foi gerada
           // ainda pra categoria da equipe) — os 3 campos vêm null juntos.
-          // Isso é diferente de DNF (que É um resultado, só que sem valor).
+          // Isso é diferente de WO (que É um resultado, só que sem valor).
           const notYetPlayed = workout.raw_value === null && !workout.did_not_finish;
 
           return (
@@ -51,7 +51,7 @@ export function TeamWorkoutResults({ teamId }: { teamId: number }) {
                 {notYetPlayed ? (
                   <span className="text-muted-foreground">—</span>
                 ) : workout.did_not_finish || !workout.raw_value ? (
-                  <span className="font-semibold text-destructive">DNF</span>
+                  <span className="font-semibold text-destructive">WO</span>
                 ) : (
                   (() => {
                     const display = formatResultDisplay(workout.raw_value, workout.scoring_type);
