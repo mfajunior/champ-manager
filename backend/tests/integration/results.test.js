@@ -8,7 +8,8 @@ const { pool } = require('../../src/config/database');
  * WebSocket — supertest fala direto com o app) contra um banco Postgres real
  * (champy_championship_test, migrado do mesmo jeito que o de desenvolvimento).
  *
- * É a versão automatizada do smoke-test-results.ps1: mesmo cenário (4
+ * É a versão automatizada do antigo smoke-test-results.ps1, que foi
+ * removido do repositório depois disto: mesmo cenário (4
  * equipes, empate, DNF, correção, remoção), mas rodando com `npm test` em
  * vez de exigir o backend de pé numa outra janela.
  *

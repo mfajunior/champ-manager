@@ -13,10 +13,10 @@
 //   npm install --save-dev socket.io-client   (só na primeira vez)
 //   node test-websocket.js <championship_id>
 //
-// Depois, em outro terminal, dispare uma mudança de resultado nesse mesmo
-// campeonato (ex.: rodando trigger-test-broadcast.ps1 <championship_id>,
-// ou o smoke-test-results.ps1 inteiro se o campeonato for novo) e observe
-// o leaderboard chegando aqui, sem precisar dar refresh em nada.
+// Depois dispare uma mudança de resultado nesse mesmo campeonato — lançando
+// ou corrigindo um resultado pelo painel (/admin, aba Baterias), ou com um
+// POST/PUT em /api/results — e observe o leaderboard chegando aqui, sem
+// precisar dar refresh em nada.
 
 const { io } = require('socket.io-client');
 
@@ -24,7 +24,7 @@ const championshipId = process.argv[2];
 
 if (!championshipId) {
   console.error('Uso: node test-websocket.js <championship_id>');
-  console.error('O id aparece no final de qualquer smoke-test-*.ps1: "Campeonato de teste: id=X"');
+  console.error('O id do campeonato aparece na URL do placar público (/placar/<id>) e em GET /api/championships');
   process.exit(1);
 }
 

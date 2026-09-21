@@ -34,7 +34,7 @@ Sobe o app Express de verdade contra um banco Postgres **real**, chamado
   `server.listen` — sem servidor escutando numa porta não existe conexão de
   socket para testar.
 
-`results.test.js` é a versão automatizada do antigo `smoke-test-results.ps1`
+`results.test.js` é a versão automatizada do antigo `smoke-test-results.ps1` (já removido do repositório)
 (mesmo cenário — 4 equipes, empate, DNF, correção, remoção — validado com
 `npm test` em vez de exigir o backend de pé numa outra janela).
 
