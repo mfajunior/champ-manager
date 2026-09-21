@@ -254,27 +254,29 @@ exports.generate = async (req, res, next) => {
       );
 
       const heatRow = heat.rows[0];
-      const lanesUsed = [];
 
-      for (let laneIndex = 0; laneIndex < plan.lanesUsed.length; laneIndex += 1) {
-        const { team, category } = plan.lanesUsed[laneIndex];
-        const laneNumber = laneIndex + 1;
+      const lanesUsed = plan.lanesUsed.map(({ team, category }, laneIndex) => ({
+        lane_number: laneIndex + 1,
+        team_id: team.id,
+        team_name: team.name,
+        category_id: category.id,
+        category_name: category.name,
+      }));
 
-        // eslint-disable-next-line no-await-in-loop
-        await client.query(
-          `INSERT INTO heat_teams (heat_id, team_id, lane_number)
-           VALUES ($1, $2, $3)`,
-          [heatRow.id, team.id, laneNumber]
-        );
+      // Um INSERT com todas as raias da bateria, em vez de um por raia: numa
+      // prova de 40 equipes eram 40 idas ao banco dentro da transação, todas
+      // em sequência. chunkIntoHeats nunca devolve bateria vazia (o slice só
+      // roda enquanto há equipe sobrando), então a lista de VALUES sempre tem
+      // ao menos uma linha.
+      const laneValues = lanesUsed.map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(', ');
+      const laneParams = [heatRow.id];
+      lanesUsed.forEach((lane) => laneParams.push(lane.team_id, lane.lane_number));
 
-        lanesUsed.push({
-          lane_number: laneNumber,
-          team_id: team.id,
-          team_name: team.name,
-          category_id: category.id,
-          category_name: category.name,
-        });
-      }
+      // eslint-disable-next-line no-await-in-loop
+      await client.query(
+        `INSERT INTO heat_teams (heat_id, team_id, lane_number) VALUES ${laneValues}`,
+        laneParams
+      );
 
       createdHeats.push({
         ...heatRow,
