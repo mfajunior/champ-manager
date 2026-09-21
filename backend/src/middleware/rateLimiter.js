@@ -14,8 +14,15 @@ const rateLimit = require('express-rate-limit');
  */
 const skipInTest = () => process.env.NODE_ENV === 'test';
 
-// Login e registro são o alvo clássico de força bruta e enumeração de email.
-// Limite baixo, por IP, só nessas duas rotas.
+// O login é o alvo clássico de força bruta e enumeração de email. Limite
+// baixo, por IP, só nessa rota — o registro público não existe mais (ver
+// routes/auth.js).
+//
+// "por IP" tem uma ressalva importante em desenvolvimento: acessando pelo
+// proxy do Vite (vite.config.ts), toda requisição chega aqui vinda do
+// processo do Vite, na mesma máquina, então TODOS os visitantes contam como
+// um IP só e dividem o mesmo balde. Numa demo pública (túnel), isso vira o
+// primeiro teto a ser atingido, bem antes de qualquer limite de CPU.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 10,

@@ -3,8 +3,10 @@
 // confirmar que o broadcastLeaderboard (resultController) está de fato
 // emitindo o evento quando um resultado é criado, corrigido ou apagado.
 //
-// Não faz parte do backend em si — é só uma ferramenta de teste manual,
-// porque ainda não existe frontend para consumir o evento leaderboard_updated.
+// Não faz parte do backend em si — é uma ferramenta de teste manual, útil
+// pra isolar o backend do frontend: o placar público já consome esse evento
+// (frontend/src/hooks/useLeaderboard.ts), então quando o placar não atualiza
+// este script responde de que lado está o problema.
 //
 // Uso:
 //   cd backend
