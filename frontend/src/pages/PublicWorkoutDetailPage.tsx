@@ -5,7 +5,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { Spinner } from '../components/ui/Spinner';
 import { useChampionship } from '../hooks/useChampionships';
 import { useWorkout } from '../hooks/useWorkouts';
-import { SCORING_TYPE_LABELS } from '../lib/scoring';
+import { SCORING_TYPE_LABELS, formatSecondsAsClock } from '../lib/scoring';
 import { getErrorMessage } from '../lib/errors';
 
 // Detalhe de uma prova, só leitura: o texto de cada variante (o WOD em si,
@@ -105,8 +105,7 @@ export function PublicWorkoutDetailPage() {
                   <p className="mt-2 whitespace-pre-wrap text-sm">{variant.description}</p>
                   {variant.time_cap_seconds && (
                     <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Time cap: {Math.floor(variant.time_cap_seconds / 60)}min
-                      {variant.time_cap_seconds % 60 > 0 ? ` ${variant.time_cap_seconds % 60}s` : ''}
+                      Time cap: {formatSecondsAsClock(String(variant.time_cap_seconds))}
                     </p>
                   )}
                 </>

@@ -3,6 +3,7 @@ import { Button } from '../ui/Button';
 import { ErrorBanner } from '../ui/ErrorBanner';
 import { useUpsertVariant } from '../../hooks/useWorkouts';
 import { getErrorMessage } from '../../lib/errors';
+import { formatSecondsAsClock, parseClockToSeconds } from '../../lib/scoring';
 import type { Category, WorkoutVariant } from '../../types';
 
 /**
@@ -23,18 +24,35 @@ export function WorkoutVariantEditor({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [description, setDescription] = useState(variant?.description ?? '');
-  const [timeCap, setTimeCap] = useState(variant?.time_cap_seconds ?? '');
+  // time_cap_seconds é guardado em segundos no banco; o campo fala mm:ss,
+  // igual ao lançamento de resultado de prova 'time'. A conversão acontece
+  // só na borda — nada muda na API nem no schema.
+  const [timeCap, setTimeCap] = useState(
+    variant?.time_cap_seconds ? formatSecondsAsClock(String(variant.time_cap_seconds)) : ''
+  );
   const [error, setError] = useState<string | null>(null);
   const upsertVariant = useUpsertVariant();
 
   const handleSave = async () => {
     setError(null);
+
+    // Vazio é válido: significa prova sem time cap. Qualquer outra coisa
+    // precisa ser mm:ss — mesmo parser do lançamento de resultado.
+    let capEmSegundos: number | null = null;
+    if (timeCap.trim() !== '') {
+      capEmSegundos = parseClockToSeconds(timeCap);
+      if (capEmSegundos === null) {
+        setError('Time cap inválido — use mm:ss (ex.: 12:00)');
+        return;
+      }
+    }
+
     try {
       await upsertVariant.mutateAsync({
         workoutId,
         categoryId: category.id,
         description,
-        time_cap_seconds: timeCap === '' ? null : Number(timeCap),
+        time_cap_seconds: capEmSegundos,
       });
       setIsEditing(false);
     } catch (err) {
@@ -52,7 +70,7 @@ export function WorkoutVariantEditor({
           <p className="mt-1 text-sm">{variant?.description || 'Sem descrição cadastrada ainda.'}</p>
           {variant?.time_cap_seconds && (
             <p className="mt-1 text-xs text-muted-foreground">
-              Time cap: {Math.floor(variant.time_cap_seconds / 60)}min
+              Time cap: {formatSecondsAsClock(String(variant.time_cap_seconds))}
             </p>
           )}
         </div>
@@ -83,11 +101,11 @@ export function WorkoutVariantEditor({
       />
       <div className="flex items-center gap-3">
         <input
-          type="number"
-          min={0}
-          placeholder="Time cap (segundos)"
+          type="text"
+          inputMode="numeric"
+          placeholder="Time cap (mm:ss)"
           value={timeCap}
-          onChange={(e) => setTimeCap(e.target.value === '' ? '' : Number(e.target.value))}
+          onChange={(e) => setTimeCap(e.target.value)}
           className="w-48 border border-border px-3 py-2 text-sm"
         />
         <Button onClick={handleSave} disabled={upsertVariant.isPending}>
