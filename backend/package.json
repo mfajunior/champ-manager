@@ -9,6 +9,7 @@
     "migrate": "node scripts/migrate.js",
     "migrate:test": "node -r dotenv/config scripts/migrate.js dotenv_config_path=.env.test",
     "create-user": "node scripts/create-user.js",
+    "smoke": "node scripts/smoke-seed.js",
     "test": "jest --detectOpenHandles",
     "test:coverage": "jest --detectOpenHandles --coverage"
   },

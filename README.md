@@ -347,6 +347,22 @@ testes do projeto, anteriores à suíte Jest, e pararam de funcionar quando o au
 removido e a migration 005 mudou os parâmetros de geração de baterias. Os mesmos fluxos estão
 cobertos em `backend/tests/integration/`, que roda no CI.
 
+No lugar deles entrou `backend/scripts/smoke-seed.js`, que fala com a API pelo HTTP (não insere no
+banco direto, justamente pra exercitar validação, trigger de colocação e broadcast) e monta um
+campeonato completo de teste: 60 equipes divididas de forma desigual entre as 5 categorias, 3 provas
+— uma de cada `scoring_type` — baterias geradas e um resultado aleatório por raia, com ~4% de WO. No
+fim ele confere o leaderboard (60 linhas, colocação sem buraco dentro de cada categoria, total_score
+na faixa possível) e informa média e p95 do tempo de resposta do lançamento de resultado:
+
+```bash
+cd backend
+npm run create-user -- "voce@exemplo.com" "sua-senha" "Seu Nome"   # se ainda não tiver conta
+npm run smoke -- "voce@exemplo.com" "sua-senha"
+```
+
+Cria dados reais no banco em uso — rode contra desenvolvimento. O campeonato nasce marcado com
+`[SMOKE]` no nome e pode ser arquivado ou excluído pelo painel depois.
+
 Para checar o broadcast do WebSocket contra um servidor já rodando, sem subir e derrubar o app,
 `backend/test-websocket.js` continua disponível.
 
