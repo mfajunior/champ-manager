@@ -290,6 +290,19 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('\n✗ Falhou:', err.message);
+  // fetch do Node embrulha erro de rede num TypeError genérico ("fetch
+  // failed") e guarda o motivo real em err.cause — sem desembrulhar, a
+  // mensagem não distingue "backend fora do ar" de "senha errada".
+  const causa = err.cause?.code;
+
+  if (causa === 'ECONNREFUSED' || causa === 'ECONNRESET' || causa === 'ENOTFOUND') {
+    console.error(`\n✗ Não consegui falar com o backend em ${BASE_URL} (${causa}).`);
+    console.error('  Ele está rodando? Suba com:  cd backend && npm run dev');
+    console.error('  Atenção: passar no `npm test` não garante isso — o Jest usa supertest,');
+    console.error('  que sobe o app em memória e nunca abre a porta.');
+  } else {
+    console.error('\n✗ Falhou:', err.message);
+  }
+
   process.exitCode = 1;
 });
