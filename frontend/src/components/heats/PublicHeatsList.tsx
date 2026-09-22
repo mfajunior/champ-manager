@@ -1,3 +1,5 @@
+import { Fragment } from 'react';
+import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { formatTime } from '../../lib/format';
 import type { Heat } from '../../types';
 
@@ -31,57 +33,60 @@ export function PublicHeatsList({ heats }: { heats: Heat[] }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {heats.map((heat) => (
-        <div key={heat.id} className="border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-muted px-3 py-2">
-            <span className="text-sm font-bold uppercase tracking-wider">
-              Bateria {heat.heat_number}
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {heat.status === 'scheduled' &&
-                (heat.scheduled_time
-                  ? `Horário: ${formatTime(heat.scheduled_time)}`
-                  : 'Horário: a definir')}
-              {heat.status === 'in_progress' &&
-                `Em andamento${
-                  heat.scheduled_time ? ` · ${formatTime(heat.scheduled_time)}` : ' · sem horário calculado'
-                }`}
-              {heat.status === 'completed' &&
-                `Concluída${
-                  heat.scheduled_time ? ` · ${formatTime(heat.scheduled_time)}` : ' · sem horário calculado'
-                }`}
-            </span>
-          </div>
-          <table className="w-full table-fixed">
-            {/* Cada bateria é uma <table> separada (heats.map), então sem
-                larguras fixas o navegador recalcula a coluna "Equipe" com
-                base só no conteúdo daquela tabela — nomes de equipe mais
-                compridos numa bateria empurram "Categoria" mais pra direita
-                só ali, e a coluna fica desalinhada entre as baterias.
-                table-fixed + colgroup trava a mesma largura em todas. */}
-            <colgroup>
-              <col className="w-16" />
-              <col className="w-2/5" />
-              <col />
-            </colgroup>
-            <thead>
-              <tr className="text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                <th className="px-3 py-2">Raia</th>
-                <th className="px-3 py-2">Equipe</th>
-                <th className="px-3 py-2">Categoria</th>
-              </tr>
-            </thead>
-            <tbody>
-              {heat.teams.map((lane) => (
-                <tr key={lane.heat_team_id} className="border-b border-border last:border-0">
-                  <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
-                  <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
-                  <td className="px-3 py-2 text-sm text-muted-foreground">{lane.category_name}</td>
+      {heats.map((heat, index) => (
+        <Fragment key={heat.id}>
+          <div className="border border-border">
+            <div className="flex items-center justify-between border-b border-border bg-muted px-3 py-2">
+              <span className="text-sm font-bold uppercase tracking-wider">
+                Bateria {heat.heat_number}
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {heat.status === 'scheduled' &&
+                  (heat.scheduled_time
+                    ? `Horário: ${formatTime(heat.scheduled_time)}`
+                    : 'Horário: a definir')}
+                {heat.status === 'in_progress' &&
+                  `Em andamento${
+                    heat.scheduled_time ? ` · ${formatTime(heat.scheduled_time)}` : ' · sem horário calculado'
+                  }`}
+                {heat.status === 'completed' &&
+                  `Concluída${
+                    heat.scheduled_time ? ` · ${formatTime(heat.scheduled_time)}` : ' · sem horário calculado'
+                  }`}
+              </span>
+            </div>
+            <table className="w-full table-fixed">
+              {/* Cada bateria é uma <table> separada (heats.map), então sem
+                  larguras fixas o navegador recalcula a coluna "Equipe" com
+                  base só no conteúdo daquela tabela — nomes de equipe mais
+                  compridos numa bateria empurram "Categoria" mais pra direita
+                  só ali, e a coluna fica desalinhada entre as baterias.
+                  table-fixed + colgroup trava a mesma largura em todas. */}
+              <colgroup>
+                <col className="w-16" />
+                <col className="w-2/5" />
+                <col />
+              </colgroup>
+              <thead>
+                <tr className="text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  <th className="px-3 py-2">Raia</th>
+                  <th className="px-3 py-2">Equipe</th>
+                  <th className="px-3 py-2">Categoria</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {heat.teams.map((lane) => (
+                  <tr key={lane.heat_team_id} className="border-b border-border last:border-0">
+                    <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
+                    <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
+                    <td className="px-3 py-2 text-sm text-muted-foreground">{lane.category_name}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {heats[index + 1] && <HeatTransitionBanner from={heat} to={heats[index + 1]} />}
+        </Fragment>
       ))}
     </div>
   );
