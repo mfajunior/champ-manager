@@ -43,3 +43,15 @@ export function formatTime(isoDateTime: string): string {
   const minutes = String(date.getUTCMinutes()).padStart(2, '0');
   return `${hours}:${minutes}`;
 }
+
+/**
+ * O mesmo tratamento de formatTime, para um instante deslocado N segundos a
+ * partir do horário da bateria — é assim que se chega ao FIM dela (início +
+ * duração calculada). A soma acontece em milissegundos e o resultado volta
+ * a ser lido pelos componentes UTC, então nenhum fuso entra na conta em
+ * nenhum momento (ver a explicação em formatTime acima).
+ */
+export function formatTimeAfter(isoDateTime: string, seconds: number): string {
+  const base = new Date(isoDateTime);
+  return formatTime(new Date(base.getTime() + seconds * 1000).toISOString());
+}
