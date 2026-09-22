@@ -357,8 +357,16 @@ na faixa possível) e informa média e p95 do tempo de resposta do lançamento d
 ```bash
 cd backend
 npm run create-user -- "voce@exemplo.com" "sua-senha" "Seu Nome"   # se ainda não tiver conta
-npm run smoke -- "voce@exemplo.com" "sua-senha"
+
+# o backend precisa estar rodando, e com o rate limit desligado:
+NODE_ENV=test npm run dev        # PowerShell: $env:NODE_ENV="test"; npm run dev
+
+npm run smoke -- "voce@exemplo.com" "sua-senha"   # em outro terminal
 ```
+
+O `NODE_ENV=test` não é capricho: o script faz ~270 requisições em sequência e o `apiLimiter` corta
+em 300 por IP a cada 15 minutos — com o painel aberto no navegador ao mesmo tempo, o limite estoura
+antes do fim e o script morre com 429 no meio dos lançamentos.
 
 Cria dados reais no banco em uso — rode contra desenvolvimento. O campeonato nasce marcado com
 `[SMOKE]` no nome e pode ser arquivado ou excluído pelo painel depois.

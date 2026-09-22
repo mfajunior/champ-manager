@@ -81,6 +81,13 @@ const PROVAS = [
 
 const PROB_WO = 0.04;
 
+// 1 login + 1 campeonato + 1 agenda + 60 equipes + 3 provas + 15 variantes
+// + 3 gerações de bateria + 3 listagens + 180 resultados + 1 leaderboard.
+// Fica perto do teto de 300/15min do apiLimiter de propósito documentado:
+// é o volume de um campeonato real, e serve pra mostrar onde esse teto
+// aperta antes que ele apareça no dia do evento.
+const REQUISICOES_APROX = 270;
+
 const inteiroEntre = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 // Valor coerente com o tipo de pontuação. Faixas escolhidas pra render
@@ -106,6 +113,18 @@ async function api(method, path, body) {
 
   const payload = await res.json().catch(() => null);
 
+  if (res.status === 429) {
+    throw new Error(
+      `${method} ${path} -> 429 (rate limit)\n` +
+        `  O apiLimiter do backend permite 300 requisições por IP a cada 15 minutos, e este\n` +
+        `  script faz ~${REQUISICOES_APROX} em sequência — com o painel aberto no navegador, estoura antes do fim.\n` +
+        '  Suba o backend com o limite desligado (skipInTest, em middleware/rateLimiter.js):\n' +
+        '    PowerShell:  $env:NODE_ENV="test"; npm run dev\n' +
+        '    bash:        NODE_ENV=test npm run dev\n' +
+        '  Sem isso, espere a janela de 15 minutos expirar antes de tentar de novo.'
+    );
+  }
+
   if (!res.ok) {
     const erro = payload?.error;
     throw new Error(`${method} ${path} -> ${res.status} ${erro?.code || ''} ${erro?.message || ''}`);
@@ -128,6 +147,10 @@ async function main() {
   }
 
   console.log(`Alvo: ${BASE_URL}`);
+  console.log(
+    `Volume: ~${REQUISICOES_APROX} requisições. O apiLimiter corta em 300 por IP a cada 15 min —\n` +
+      'se o backend não estiver com NODE_ENV=test, o script morre no meio com 429.'
+  );
 
   passo('Login');
   const login = await api('POST', '/api/auth/login', { email, password: senha });
