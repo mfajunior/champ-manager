@@ -20,6 +20,9 @@ export function useHeats(workoutId: number) {
 // cadastrada, não mais uma categoria por chamada.
 interface GenerateHeatsInput {
   force?: boolean;
+  // Ordena as equipes de cada categoria pela colocação atual, do pior pro
+  // melhor — ver heatController.generate. Sem ele, a ordem é a de cadastro.
+  order_by_standings?: boolean;
 }
 
 export function useGenerateHeats(workoutId: number) {
