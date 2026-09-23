@@ -1,4 +1,5 @@
 const { pool, queryOne, queryAll } = require('../config/database');
+const { fetchStandings } = require('../models/standings');
 
 /**
  * ORDEM FIXA DE DISPUTA
@@ -85,7 +86,7 @@ exports.generate = async (req, res, next) => {
 
   try {
     const { workout_id } = req.params;
-    const { force = false } = req.body;
+    const { force = false, order_by_standings = false } = req.body;
 
     const workout = await queryOne(
       'SELECT id, championship_id, workout_number, name FROM workouts WHERE id = $1',
@@ -159,10 +160,48 @@ exports.generate = async (req, res, next) => {
       return acc;
     }, {});
 
+    // ORDEM DE DISPUTA DENTRO DE CADA CATEGORIA
+    //
+    // Por padrão é o id da equipe — ordem de cadastro, que não significa
+    // nada além de ser estável e previsível.
+    //
+    // Com order_by_standings, passa a ser a colocação atual no leaderboard,
+    // do PIOR para o MELHOR: quem lidera compete nas últimas baterias. É
+    // como campeonato de verdade organiza a disputa — a bateria final junta
+    // os primeiros colocados, e a decisão acontece na frente de todo mundo,
+    // em vez de já estar definida antes da última bateria começar.
+    //
+    // A ordenação é por categoria, nunca global, porque a colocação também
+    // é por categoria (migration 002): o 1º de Iniciante e o 1º de RX têm o
+    // mesmo place, e compará-los não diria nada.
+    //
+    // Equipe sem colocação — ainda não pontuou, ou é a primeira prova do
+    // campeonato — vai pro começo. E se NINGUÉM pontuou ainda, todas caem no
+    // desempate por id e o resultado é idêntico à ordem padrão: a opção não
+    // quebra a primeira prova, simplesmente não tem efeito nela.
+    let placePorEquipe = null;
+    if (order_by_standings === true) {
+      const standings = await fetchStandings(workout.championship_id);
+      placePorEquipe = new Map(standings.map((linha) => [linha.team_id, linha.place]));
+    }
+
+    const doPiorParaOMelhor = (a, b) => {
+      const placeA = placePorEquipe.get(a.id) ?? null;
+      const placeB = placePorEquipe.get(b.id) ?? null;
+      if (placeA === placeB) return a.id - b.id;
+      if (placeA === null) return -1;
+      if (placeB === null) return 1;
+      return placeB - placeA; // place maior = pior colocado = compete antes
+    };
+
     // Lista achatada equipe-a-equipe, já na ordem final de disputa.
     const assignments = [];
     for (const category of categories) {
-      for (const team of teamsByCategory[category.id] || []) {
+      const equipes = teamsByCategory[category.id] || [];
+      if (placePorEquipe) {
+        equipes.sort(doPiorParaOMelhor);
+      }
+      for (const team of equipes) {
         assignments.push({ team, category });
       }
     }
@@ -298,6 +337,7 @@ exports.generate = async (req, res, next) => {
         lanesPerHeat: lanes,
         heatsCreated: heatPlans.length,
         replacedExistingResults: existingResults.total > 0,
+        orderedByStandings: order_by_standings === true,
       },
     });
   } catch (error) {
