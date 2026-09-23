@@ -28,6 +28,7 @@ export function HeatGeneratorForm({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
+  const [orderByStandings, setOrderByStandings] = useState(false);
   const generateHeats = useGenerateHeats(workoutId);
 
   if (championship.lanes_per_heat === null) {
@@ -42,7 +43,7 @@ export function HeatGeneratorForm({
   const runGenerate = async (force: boolean) => {
     setError(null);
     try {
-      await generateHeats.mutateAsync({ force });
+      await generateHeats.mutateAsync({ force, order_by_standings: orderByStandings });
       setConfirmMessage(null);
       onGenerated();
     } catch (err) {
@@ -68,6 +69,24 @@ export function HeatGeneratorForm({
         sequência iniciante → scale → rx. Gerar de novo substitui as baterias
         atuais desta prova.
       </p>
+      <label className="flex items-start gap-2 border border-border px-3 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={orderByStandings}
+          onChange={(e) => setOrderByStandings(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Organizar pela colocação no leaderboard
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Dentro de cada categoria, quem está melhor colocado compete nas últimas
+            baterias — a decisão fica pro fim, na frente de todo mundo. Sem marcar, a
+            ordem é a de cadastro das equipes. Na primeira prova não muda nada: ainda
+            não existe colocação.
+          </span>
+        </span>
+      </label>
+
       <Button onClick={() => runGenerate(false)} disabled={generateHeats.isPending} className="mt-2">
         {generateHeats.isPending ? 'Gerando...' : 'Gerar baterias'}
       </Button>
