@@ -16,6 +16,22 @@ export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
 /**
+ * Sessão morta: o backend recusou o token numa chamada que mandou um.
+ *
+ * Quem REAGE a isso é o AuthContext, que limpa o usuário e deixa o
+ * ProtectedLayout redirecionar. Este módulo não conhece React nem router e não
+ * deveria — daí o callback em vez de um import. Um handler só, registrado uma
+ * vez pelo AuthProvider.
+ */
+type SessionExpiredHandler = () => void;
+
+let onSessionExpired: SessionExpiredHandler | null = null;
+
+export const setSessionExpiredHandler = (handler: SessionExpiredHandler | null) => {
+  onSessionExpired = handler;
+};
+
+/**
  * Erro de API tipado, para o `catch` de quem chamou distinguir "backend
  * respondeu com um erro de negócio" (com `code`, ex.: RESULTS_EXIST,
  * CONFLICT) de um erro de rede genérico.
@@ -39,12 +55,13 @@ interface RequestOptions {
 }
 
 /**
- * Wrapper único de fetch para toda a aplicação. Centraliza três coisas que,
+ * Wrapper único de fetch para toda a aplicação. Centraliza quatro coisas que,
  * espalhadas em cada chamada, seriam fonte garantida de bug:
  *  1. montar a URL base a partir de VITE_API_URL
  *  2. anexar o Bearer token quando a rota exige (authMiddleware no backend)
  *  3. transformar o formato de erro do backend ({ error: { code, message } })
  *     numa exceção JS de verdade, em vez de cada tela reimplementar isso
+ *  4. derrubar a sessão quando o backend recusa o token
  */
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
@@ -53,10 +70,16 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     'Content-Type': 'application/json',
   };
 
+  // Guardado porque o tratamento do 401 depende disso: 401 numa chamada que
+  // MANDOU token é sessão morta; 401 numa chamada sem token é outra coisa
+  // (senha errada no login, por exemplo) e não deve derrubar nada.
+  let sentToken = false;
+
   if (auth) {
     const token = getToken();
     if (token) {
       headers.Authorization = `Bearer ${token}`;
+      sentToken = true;
     }
   }
 
@@ -72,6 +95,20 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!response.ok) {
     const errorBody = payload as ApiErrorBody | null;
+
+    // O authMiddleware devolve 401 com TOKEN_EXPIRED, INVALID_TOKEN,
+    // AUTH_FAILED, NO_TOKEN ou INVALID_FORMAT. Qualquer um deles numa chamada
+    // autenticada significa a mesma coisa na prática: esta sessão não vale
+    // mais. Sem isso a tela ficava num estado zumbi — toda requisição
+    // falhando, nada dizendo ao organizador que bastava entrar de novo. Num
+    // evento de manhã inteira com a aba aberta, com token de 24h, isso
+    // acontece: ele configura o campeonato na véspera e chega no dia com a
+    // sessão vencida.
+    if (response.status === 401 && sentToken) {
+      clearToken();
+      onSessionExpired?.();
+    }
+
     throw new ApiError(
       response.status,
       errorBody?.error?.code ?? 'UNKNOWN_ERROR',

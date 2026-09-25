@@ -73,7 +73,11 @@ const authMiddleware = (req, res, next) => {
 /**
  * Helper para gerar JWT
  */
-const generateToken = (user, expiresIn = '24h') => {
+// A validade vem do ambiente porque 24h não serve para todo evento: quem
+// configura o campeonato na véspera e volta na manhã seguinte chega com a
+// sessão vencida. Em dia de competição vale subir (ex.: JWT_EXPIRES_IN=72h)
+// em vez de recompilar. O default continua 24h para nada mudar sem decisão.
+const generateToken = (user, expiresIn = process.env.JWT_EXPIRES_IN || '24h') => {
   return jwt.sign(
     {
       id: user.id,

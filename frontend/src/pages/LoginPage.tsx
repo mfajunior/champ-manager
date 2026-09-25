@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { getErrorMessage } from '../lib/errors';
 
 export function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
+  const { login, isAuthenticated, sessionExpired, dismissSessionExpired } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -21,6 +21,7 @@ export function LoginPage() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError(null);
+    dismissSessionExpired();
     setIsSubmitting(true);
     try {
       await login(email, password);
@@ -41,6 +42,14 @@ export function LoginPage() {
         {error && (
           <div className="mb-4">
             <ErrorBanner message={error} />
+          </div>
+        )}
+
+        {/* Sessão caiu sozinha (token recusado pelo backend), não por logout.
+            Sem esta linha o organizador voltava pro login sem entender por quê. */}
+        {!error && sessionExpired && (
+          <div className="mb-4 border border-border px-4 py-3 text-sm text-muted-foreground">
+            Sua sessão expirou. Entre novamente para continuar.
           </div>
         )}
 
