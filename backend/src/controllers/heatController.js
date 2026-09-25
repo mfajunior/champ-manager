@@ -160,6 +160,47 @@ exports.generate = async (req, res, next) => {
       return acc;
     }, {});
 
+    // CORTE POR PROVA
+    //
+    // Quando a prova tem corte configurado ("só o top 4 disputa"), apenas as
+    // classificadas entram nas baterias. Quem decide quem passa é
+    // eligible_teams_for_workout no banco (migration 012) — a MESMA função que
+    // a tela de cortes consulta. Se este controller tivesse a própria noção de
+    // "top 4", ela divergiria da mostrada ao organizador no primeiro empate, e
+    // ele veria uma lista na tela e outra na raia.
+    //
+    // A consulta só acontece quando existe corte. Sem corte, o caminho é
+    // exatamente o de antes: este é o endpoint mais arriscado do backend e
+    // não é hora de mudar o comportamento de quem não pediu nada.
+    const corteConfigurado = await queryOne(
+      'SELECT 1 AS existe FROM workout_cuts WHERE workout_id = $1 LIMIT 1',
+      [workout_id]
+    );
+
+    if (corteConfigurado) {
+      // Uma query para todas as categorias, via LATERAL, em vez de uma
+      // chamada por categoria dentro de um loop.
+      const classificadas = await queryAll(
+        `SELECT c.id AS category_id, e AS team_id
+           FROM categories c
+           CROSS JOIN LATERAL eligible_teams_for_workout($1, c.id) e
+          WHERE c.championship_id = $2`,
+        [workout_id, workout.championship_id]
+      );
+
+      const permitidasPorCategoria = classificadas.reduce((acc, linha) => {
+        (acc[linha.category_id] ||= new Set()).add(Number(linha.team_id));
+        return acc;
+      }, {});
+
+      for (const categoryId of Object.keys(teamsByCategory)) {
+        const permitidas = permitidasPorCategoria[categoryId] || new Set();
+        teamsByCategory[categoryId] = teamsByCategory[categoryId].filter((team) =>
+          permitidas.has(Number(team.id))
+        );
+      }
+    }
+
     // ORDEM DE DISPUTA DENTRO DE CADA CATEGORIA
     //
     // Por padrão é o id da equipe — ordem de cadastro, que não significa
@@ -230,6 +271,20 @@ exports.generate = async (req, res, next) => {
           message:
             `Já existem ${existingResults.total} resultado(s) lançado(s) nesta prova. ` +
             `Regerar as baterias apagaria esses resultados. Envie force: true se for mesmo isso que você quer.`,
+        },
+      });
+    }
+
+    // O corte pode ter deixado a prova sem ninguém (top N maior que zero, mas
+    // nenhuma equipe pontuou ainda, ou cortes empilhados). Melhor dizer isso
+    // do que gerar zero baterias em silêncio e o organizador descobrir na hora.
+    if (assignments.length === 0) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: corteConfigurado
+            ? 'O corte configurado não deixou nenhuma equipe classificada para esta prova.'
+            : 'Nenhuma equipe registrada neste campeonato',
         },
       });
     }
@@ -338,6 +393,7 @@ exports.generate = async (req, res, next) => {
         heatsCreated: heatPlans.length,
         replacedExistingResults: existingResults.total > 0,
         orderedByStandings: order_by_standings === true,
+        cutApplied: Boolean(corteConfigurado),
       },
     });
   } catch (error) {
