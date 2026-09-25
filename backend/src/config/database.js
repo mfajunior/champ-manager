@@ -55,7 +55,39 @@ const query = async (text, params = []) => {
     }
     return result;
   } catch (error) {
-    console.error('Database error:', error);
+    // NEM TODO ERRO DE SQL É FALHA
+    //
+    // SQLSTATE da classe 23 é violação de constraint de integridade, e P0001 é
+    // RAISE EXCEPTION das nossas próprias funções PL/pgSQL. Os dois são
+    // RESULTADOS ESPERADOS: os controllers os traduzem em 400/409 e o cliente
+    // recebe uma mensagem legível em português.
+    //
+    // Registrar isso como "Database error" com stack completo faz um erro de
+    // uso comum — tentar excluir uma tabela de pontos que está em uso, salvar
+    // faixas com buraco — parecer falha de infraestrutura. No meio de um
+    // evento é exatamente esse ruído que esconde o problema de verdade: quem
+    // abre o log procurando a causa de uma queda encontra dez stacks de
+    // constraints que funcionaram como deveriam.
+    //
+    // Continua sendo registrado, em uma linha, com constraint e tabela — o
+    // suficiente para investigar sem afogar o log.
+    const violacaoEsperada =
+      error.code === 'P0001' || String(error.code || '').startsWith('23');
+
+    if (violacaoEsperada) {
+      console.warn(JSON.stringify({
+        level: 'warn',
+        message: 'Constraint recusou a operação',
+        code: error.code,
+        constraint: error.constraint,
+        table: error.table,
+        detail: error.message,
+        timestamp: new Date().toISOString(),
+      }));
+    } else {
+      console.error('Database error:', error);
+    }
+
     throw error;
   }
 };
