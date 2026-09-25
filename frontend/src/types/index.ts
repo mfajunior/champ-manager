@@ -146,7 +146,17 @@ export interface Standing {
   category_name: string;
   gender?: Category['gender'];
   level?: Category['level'];
+  /** Qual regra de pontuação o campeonato usa (migration 011). */
+  scoring_model: 'legacy' | 'points_table';
+  /** Soma das colocações — menor é melhor. É o que o modelo `legacy` ranqueia. */
   total_score: number;
+  // Pontos do modelo `points_table` — maior é melhor. Null no `legacy`, onde
+  // pontos não existem: 0 sugeriria "fez zero pontos" onde a resposta certa é
+  // "essa conta não se aplica". O contrato foi estendido, não redefinido —
+  // total_score continua significando o que sempre significou.
+  total_points: number | null;
+  /** Fora do corte de alguma prova: mantém os pontos, sai das baterias. */
+  is_cut: boolean;
   // null até a equipe ter pelo menos 1 resultado lançado em algum lugar do
   // campeonato (é quando o trigger do banco calcula o place de verdade,
   // inclusive das que ainda não pontuaram — ver leaderboardController.js).
