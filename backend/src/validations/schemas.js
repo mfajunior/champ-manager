@@ -73,7 +73,41 @@ const workoutUpdate = Joi.object({
   description: Joi.string().allow(null, ''),
 }).min(1);
 
+// ---------------------------------------------------------------------------
+// Tabelas de pontos do modelo points_table (migrations 011 e 012)
+// ---------------------------------------------------------------------------
+
+// end_place null = faixa aberta ("desta colocação em diante"). Que a última
+// faixa SEJA aberta, que comecem na 1ª colocação e que sejam contínuas é
+// verificado pela constraint trigger no banco, não aqui: é validação de
+// conjunto, e Joi valida uma faixa de cada vez. Aqui só o formato.
+const pointsTableRange = Joi.object({
+  start_place: Joi.number().integer().min(1).required(),
+  end_place: Joi.number().integer().min(1).allow(null).default(null),
+  decrement: Joi.number().integer().min(0).required(),
+});
+
+// max(10) é guarda contra payload absurdo, não a regra do produto: a decisão
+// foi que a TELA oferece no máximo 3 faixas e o banco suporta N, para afrouxar
+// depois ser mudança só de interface. Travar em 3 aqui transformaria a API no
+// limite e contrariaria isso.
+const pointsTableCreate = Joi.object({
+  name: Joi.string().trim().min(2).required(),
+  max_points: Joi.number().integer().positive(),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10).required(),
+});
+
+// Mandar `ranges` substitui TODAS as faixas — não existe edição individual,
+// porque faixas só fazem sentido como conjunto contínuo.
+const pointsTableUpdate = Joi.object({
+  name: Joi.string().trim().min(2),
+  max_points: Joi.number().integer().positive(),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10),
+}).min(1);
+
 module.exports = {
+  pointsTableCreate,
+  pointsTableUpdate,
   authLogin,
   championshipCreate,
   championshipUpdate,
