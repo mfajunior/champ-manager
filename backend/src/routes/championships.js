@@ -38,6 +38,15 @@ router.put(
 // DELETE /api/championships/:id - Deletar campeonato (protegido)
 router.delete('/:id', authMiddleware, championshipController.delete);
 
+// PUT /api/championships/:id/scoring-model - Trocar o modelo de pontuação (protegido)
+// Dois segmentos, então não colide com "/:id" acima.
+router.put(
+  '/:championship_id/scoring-model',
+  authMiddleware,
+  validate(schemas.scoringModelSet),
+  pointsTableController.setScoringModel
+);
+
 // ---------------------------------------------------------------------------
 // Tabelas de pontos (modelo points_table)
 // ---------------------------------------------------------------------------

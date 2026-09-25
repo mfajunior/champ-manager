@@ -105,7 +105,24 @@ const pointsTableUpdate = Joi.object({
   ranges: Joi.array().items(pointsTableRange).min(1).max(10),
 }).min(1);
 
+// Troca do modelo de pontuação do campeonato. confirm existe porque a troca
+// reescreve o placar inteiro — mesmo padrão do force ao regerar baterias.
+const scoringModelSet = Joi.object({
+  scoring_model: Joi.string().valid('legacy', 'points_table').required(),
+  points_table_id: Joi.number().integer().positive().allow(null),
+  confirm: Joi.boolean().default(false),
+});
+
+// Corte da prova. category_id nulo (ou ausente) é a linha padrão, que vale
+// para todas as divisões; com categoria, sobrescreve a padrão só naquela.
+const workoutCutSet = Joi.object({
+  keep_top_n: Joi.number().integer().positive().required(),
+  category_id: Joi.number().integer().positive().allow(null).default(null),
+});
+
 module.exports = {
+  scoringModelSet,
+  workoutCutSet,
   pointsTableCreate,
   pointsTableUpdate,
   authLogin,

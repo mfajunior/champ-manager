@@ -1,4 +1,5 @@
 const { pool, query, queryOne, queryAll } = require('../config/database');
+const { respondToPgError } = require('../utils/pgErrors');
 
 /**
  * CRUD das tabelas de pontos do modelo `points_table` (migrations 011 e 012),
@@ -21,61 +22,6 @@ const { pool, query, queryOne, queryAll } = require('../config/database');
  */
 
 const MAX_PLACES_PREVIEW = 500;
-
-/**
- * Traduz erro do Postgres para resposta HTTP.
- *
- * Sem isso o erro cairia no error handler central do app.js, que usa err.code
- * como código da resposta — e err.code num erro do pg é o SQLSTATE. O cliente
- * receberia `{ code: "P0001" }` com a mensagem crua, e um 500 onde o certo é
- * 400. Vale para qualquer controller que dependa de constraint: o tratamento
- * não é opcional, é parte de usar regra no banco.
- */
-const respondToPgError = (err, res, next) => {
-  // RAISE EXCEPTION das funções PL/pgSQL (validação das faixas).
-  if (err.code === 'P0001') {
-    return res.status(400).json({
-      error: { code: 'VALIDATION_ERROR', message: err.message },
-    });
-  }
-
-  // CHECK constraint: decremento negativo, end_place antes de start_place,
-  // max_points <= 0.
-  if (err.code === '23514') {
-    return res.status(400).json({
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'Faixa de pontuação inválida: confira as colocações e o decremento.',
-      },
-    });
-  }
-
-  // UNIQUE: nome repetido no campeonato, ou duas faixas com o mesmo
-  // start_place, ou uma segunda faixa aberta.
-  if (err.code === '23505') {
-    const duplicidade = String(err.constraint || '');
-    const mensagem = duplicidade.includes('open_range')
-      ? 'Só pode existir uma faixa aberta ("em diante") por tabela.'
-      : duplicidade.includes('start_place')
-        ? 'Duas faixas começam na mesma colocação.'
-        : 'Já existe uma tabela de pontos com esse nome neste campeonato.';
-    return res.status(409).json({ error: { code: 'CONFLICT', message: mensagem } });
-  }
-
-  // ON DELETE RESTRICT de championships.points_table_id: a tabela está sendo
-  // usada como régua de um campeonato.
-  if (err.code === '23503') {
-    return res.status(409).json({
-      error: {
-        code: 'CONFLICT',
-        message:
-          'Esta tabela de pontos está em uso por um campeonato. Troque a tabela do campeonato antes de excluí-la.',
-      },
-    });
-  }
-
-  return next(err);
-};
 
 const carregarFaixas = (pointsTableId) =>
   queryAll(
@@ -424,4 +370,125 @@ const preview = async (req, res, next) => {
   }
 };
 
-module.exports = { list, create, update, remove, preview };
+/**
+ * PUT /api/championships/:championship_id/scoring-model
+ * body: { scoring_model, points_table_id?, confirm? }
+ *
+ * Trocar o modelo REESCREVE o placar de cima a baixo: onde antes a menor soma
+ * de colocações liderava, passa a liderar a maior soma de pontos. Por isso o
+ * 409 com contagem quando já existem resultados — mesmo padrão do
+ * heatController ao regerar baterias, e pelo mesmo motivo: a operação é
+ * legítima, mas quem a dispara sem saber o efeito se assusta com o resultado.
+ *
+ * Resultados brutos nunca são tocados. O recálculo é do trigger no banco; este
+ * handler só muda a configuração do campeonato.
+ */
+const setScoringModel = async (req, res, next) => {
+  try {
+    const { championship_id } = req.params;
+    const { scoring_model, points_table_id = null, confirm = false } = req.body;
+
+    const campeonato = await queryOne(
+      'SELECT id, scoring_model, points_table_id FROM championships WHERE id = $1',
+      [championship_id]
+    );
+
+    if (!campeonato) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Campeonato não encontrado' },
+      });
+    }
+
+    // A tabela alvo é a mandada agora ou a que o campeonato já tinha. O CHECK
+    // no banco é a garantia final, mas checar aqui devolve mensagem melhor do
+    // que a tradução genérica da constraint.
+    const tabelaAlvo = points_table_id ?? campeonato.points_table_id;
+
+    if (scoring_model === 'points_table') {
+      if (!tabelaAlvo) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message:
+              'Para usar a pontuação estilo CrossFit Games é preciso escolher uma tabela de pontos.',
+          },
+        });
+      }
+
+      const tabela = await queryOne(
+        'SELECT id, championship_id FROM points_tables WHERE id = $1',
+        [tabelaAlvo]
+      );
+
+      if (!tabela) {
+        return res.status(404).json({
+          error: { code: 'NOT_FOUND', message: 'Tabela de pontos não encontrada' },
+        });
+      }
+
+      if (Number(tabela.championship_id) !== Number(championship_id)) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'A tabela de pontos não pertence a este campeonato',
+          },
+        });
+      }
+    }
+
+    const semMudanca =
+      campeonato.scoring_model === scoring_model &&
+      Number(campeonato.points_table_id ?? 0) === Number(tabelaAlvo ?? 0);
+
+    const { total } = await queryOne(
+      `SELECT COUNT(*)::int AS total
+         FROM results r
+         JOIN heat_teams ht ON ht.id = r.heat_team_id
+         JOIN heats h ON h.id = ht.heat_id
+         JOIN workouts w ON w.id = h.workout_id
+        WHERE w.championship_id = $1`,
+      [championship_id]
+    );
+
+    if (total > 0 && !confirm && !semMudanca) {
+      return res.status(409).json({
+        error: {
+          code: 'RESULTS_EXIST',
+          message:
+            `Este campeonato já tem ${total} resultado(s) lançado(s). ` +
+            `Trocar a pontuação recalcula o placar inteiro (os resultados em si não são apagados). ` +
+            `Envie confirm: true se for mesmo isso que você quer.`,
+        },
+      });
+    }
+
+    await query(
+      `UPDATE championships
+          SET scoring_model = $2,
+              points_table_id = $3,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1`,
+      [championship_id, scoring_model, scoring_model === 'points_table' ? tabelaAlvo : (points_table_id ?? campeonato.points_table_id)]
+    );
+
+    const atualizado = await queryOne(
+      'SELECT id, name, scoring_model, points_table_id FROM championships WHERE id = $1',
+      [championship_id]
+    );
+
+    res.status(200).json({
+      data: atualizado,
+      meta: {
+        message:
+          scoring_model === 'points_table'
+            ? 'Campeonato usando pontuação estilo CrossFit Games'
+            : 'Campeonato usando pontuação padrão (soma de colocações)',
+        recalculated_results: total,
+      },
+    });
+  } catch (error) {
+    return respondToPgError(error, res, next);
+  }
+};
+
+module.exports = { list, create, update, remove, preview, setScoringModel };
