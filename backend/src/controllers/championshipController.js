@@ -1,4 +1,5 @@
-const { query, queryOne, queryAll } = require('../config/database');
+const { pool, query, queryOne, queryAll } = require('../config/database');
+const { rescheduleChampionship } = require('../models/schedule');
 
 /**
  * Categorias padrão de um campeonato.
@@ -74,6 +75,7 @@ exports.getAll = async (req, res, next) => {
     const championships = await queryAll(
       `SELECT c.id, c.name, c.date, c.location, c.is_active, c.created_at,
               c.lanes_per_heat, c.transition_seconds, c.start_time,
+              c.scoring_model, c.points_table_id,
               COUNT(DISTINCT t.id)::int AS teams_count,
               COUNT(DISTINCT w.id)::int AS workouts_count
        FROM championships c
@@ -100,7 +102,8 @@ exports.getById = async (req, res, next) => {
 
     const championship = await queryOne(
       `SELECT id, name, date, location, is_active, created_at,
-              lanes_per_heat, transition_seconds, start_time
+              lanes_per_heat, transition_seconds, start_time,
+              scoring_model, points_table_id
        FROM championships WHERE id = $1`,
       [id]
     );
@@ -172,6 +175,14 @@ exports.update = async (req, res, next) => {
         id,
       ]
     );
+
+    // Hora de início, transição e data definem a agenda do dia inteiro.
+    // Mudar qualquer uma sem recalcular deixaria as baterias já geradas com
+    // horários que não correspondem mais à configuração — erradas em silêncio,
+    // que é o pior jeito de estar errado num evento.
+    if (start_time !== undefined || transition_seconds !== undefined || date !== undefined) {
+      await rescheduleChampionship(pool, id);
+    }
 
     res.status(200).json({
       data: updated,

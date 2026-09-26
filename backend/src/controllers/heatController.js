@@ -1,5 +1,6 @@
 const { pool, queryOne, queryAll } = require('../config/database');
 const { fetchStandings } = require('../models/standings');
+const { rescheduleChampionship } = require('../models/schedule');
 
 /**
  * ORDEM FIXA DE DISPUTA
@@ -57,22 +58,6 @@ exports.chunkIntoHeats = chunkIntoHeats;
  * null e todas as baterias SEGUINTES também ficam sem horário — não dá pra
  * saber quando uma bateria começa sem saber quando a anterior termina.
  */
-const computeHeatSchedule = (heatPlans, { startCursor, transitionSeconds }) => {
-  let cursor = startCursor;
-  return heatPlans.map((plan) => {
-    if (!cursor) {
-      return { scheduledTime: null };
-    }
-    const scheduledTime = new Date(cursor.getTime());
-    if (typeof plan.durationSeconds === 'number') {
-      cursor = new Date(cursor.getTime() + (plan.durationSeconds + transitionSeconds) * 1000);
-    } else {
-      cursor = null;
-    }
-    return { scheduledTime };
-  });
-};
-exports.computeHeatSchedule = computeHeatSchedule;
 
 // POST /api/workouts/:workout_id/heats  (protegido)
 // body: { force? }
@@ -298,35 +283,11 @@ exports.generate = async (req, res, next) => {
       return { lanesUsed: chunk, durationSeconds: hasAllCaps ? Math.max(...caps) : null };
     });
 
-    // Âncora: continua de onde a última bateria já agendada no campeonato
-    // (de QUALQUER prova) parou. Só cai pro início do campeonato se essa é a
-    // primeira bateria com horário calculado do evento inteiro. Isso é o que
-    // permite gerar prova por prova, em ordem, e sair com uma agenda contínua
-    // o dia todo — sem coordenar manualmente entre provas.
-    const previousAnchor = await queryOne(
-      `SELECT MAX(h.scheduled_time + (h.duration_seconds || ' seconds')::interval) AS last_end
-       FROM heats h
-       JOIN workouts w ON w.id = h.workout_id
-       WHERE w.championship_id = $1
-         AND h.workout_id != $2
-         AND h.scheduled_time IS NOT NULL
-         AND h.duration_seconds IS NOT NULL`,
-      [workout.championship_id, workout_id]
-    );
-
-    // O tempo de transição também vale entre a última bateria de uma prova e
-    // a primeira da próxima — baterias são sequenciais no dia inteiro, não só
-    // dentro da mesma prova. Sem somar aqui, gerar prova por prova comprimia
-    // esse intervalo (bug encontrado testando: heat final do WOD1 terminava
-    // e o heat inicial do WOD2 começava no mesmo instante, sem transição).
-    let startCursor = null;
-    if (previousAnchor.last_end) {
-      startCursor = new Date(new Date(previousAnchor.last_end).getTime() + transitionSeconds * 1000);
-    } else if (championship.start_time_str) {
-      startCursor = new Date(`${championship.date_str}T${championship.start_time_str}`);
-    }
-
-    const schedule = computeHeatSchedule(heatPlans, { startCursor, transitionSeconds });
+    // O horário de cada bateria não é decidido aqui. Depois de gravar as
+    // baterias, a agenda do campeonato INTEIRO é recalculada em
+    // models/schedule.js, na ordem das provas — é o que faz a prova 1 começar
+    // na hora configurada e as seguintes se ajustarem quando ela muda de
+    // tamanho, independentemente da ordem em que foram geradas.
 
     await client.query('BEGIN');
 
@@ -337,14 +298,17 @@ exports.generate = async (req, res, next) => {
     for (let i = 0; i < heatPlans.length; i += 1) {
       const heatNumber = i + 1;
       const plan = heatPlans[i];
-      const { scheduledTime } = schedule[i];
 
       // eslint-disable-next-line no-await-in-loop
       const heat = await client.query(
         `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
-        [workout_id, heatNumber, scheduledTime, plan.durationSeconds]
+         RETURNING id, workout_id, heat_number,
+                   to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+                   duration_seconds, status`,
+        // scheduled_time entra nulo: quem preenche é rescheduleChampionship
+        // abaixo, ainda dentro desta transação.
+        [workout_id, heatNumber, null, plan.durationSeconds]
       );
 
       const heatRow = heat.rows[0];
@@ -379,6 +343,22 @@ exports.generate = async (req, res, next) => {
         lanes_empty: lanes - lanesUsed.length,
       });
     }
+
+    // Reagenda o campeonato inteiro, não só esta prova: mudar o tamanho de uma
+    // prova empurra todas as seguintes.
+    await rescheduleChampionship(client, workout.championship_id);
+
+    // Relê os horários recém-calculados — createdHeats foi montado antes do
+    // reagendamento e teria scheduled_time nulo na resposta.
+    const { rows: horarios } = await client.query(
+      `SELECT id, to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time
+         FROM heats WHERE workout_id = $1`,
+      [workout_id]
+    );
+    const horarioPorBateria = new Map(horarios.map((h) => [h.id, h.scheduled_time]));
+    createdHeats.forEach((h) => {
+      h.scheduled_time = horarioPorBateria.get(h.id) ?? null;
+    });
 
     await client.query('COMMIT');
 
@@ -420,7 +400,9 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     const heats = await queryAll(
-      `SELECT id, workout_id, heat_number, scheduled_time, duration_seconds, status
+      `SELECT id, workout_id, heat_number,
+              to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+              duration_seconds, status
        FROM heats
        WHERE workout_id = $1
        ORDER BY heat_number ASC`,
@@ -510,7 +492,9 @@ exports.update = async (req, res, next) => {
            status         = COALESCE($2, status),
            updated_at     = CURRENT_TIMESTAMP
        WHERE id = $3
-       RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
+       RETURNING id, workout_id, heat_number,
+                   to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+                   duration_seconds, status`,
       [scheduled_time ?? null, status ?? null, id]
     );
 

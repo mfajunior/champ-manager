@@ -1,4 +1,5 @@
-const { chunkIntoHeats, computeHeatSchedule } = require('../../src/controllers/heatController');
+const { chunkIntoHeats } = require('../../src/controllers/heatController');
+const { computeOffsets } = require('../../src/models/schedule');
 
 /**
  * chunkIntoHeats substitui o antigo distributeTeams (round-robin balanceado
@@ -50,51 +51,56 @@ describe('chunkIntoHeats (fatia em baterias, sem reordenar)', () => {
 });
 
 /**
- * computeHeatSchedule encadeia o horário de cada bateria a partir de um
- * cursor inicial, somando duração + transição a cada passo. Uma vez que uma
- * bateria de duração desconhecida aparece, o cursor "quebra" (vira null) e
- * todas as baterias seguintes também ficam sem horário -- não dá pra saber
- * quando uma bateria começa sem saber quando a anterior termina.
+ * computeOffsets substituiu computeHeatSchedule.
+ *
+ * A função antiga recebia um Date e devolvia Dates. Isso a tornava refém do
+ * fuso do processo Node: o mesmo código gravava horários diferentes rodando no
+ * Windows do organizador (UTC-3) ou num container em UTC — a mesma classe de
+ * bug que a migration 009 corrigiu no histórico de lançamentos.
+ *
+ * Agora a conta é em SEGUNDOS e a soma acontece no Postgres
+ * (`data + hora_de_inicio + interval`), sem conversão implícita de fuso em
+ * lugar nenhum. Os casos testados são os mesmos; muda a unidade.
+ *
+ * Bateria de duração desconhecida ainda recebe o próprio horário de início, e
+ * "quebra" a cadeia: sem saber quando ela termina, não dá para afirmar quando
+ * a próxima começa.
  */
-describe('computeHeatSchedule (encadeia horário, propaga null)', () => {
-  test('sem cursor inicial, nenhuma bateria recebe horário', () => {
-    const heatPlans = [{ durationSeconds: 600 }, { durationSeconds: 600 }];
-    const schedule = computeHeatSchedule(heatPlans, { startCursor: null, transitionSeconds: 60 });
-    expect(schedule).toEqual([{ scheduledTime: null }, { scheduledTime: null }]);
-  });
-
+describe('computeOffsets (encadeia em segundos, propaga null)', () => {
   test('encadeia duração + transição entre baterias consecutivas', () => {
-    const start = new Date('2026-10-10T08:00:00.000Z');
-    const heatPlans = [{ durationSeconds: 600 }, { durationSeconds: 300 }, { durationSeconds: 900 }];
-    const schedule = computeHeatSchedule(heatPlans, { startCursor: start, transitionSeconds: 60 });
-
-    expect(schedule[0].scheduledTime).toEqual(new Date('2026-10-10T08:00:00.000Z'));
-    // 08:00 + 600s (10min) + 60s transição = 08:11:00
-    expect(schedule[1].scheduledTime).toEqual(new Date('2026-10-10T08:11:00.000Z'));
-    // 08:11 + 300s (5min) + 60s transição = 08:17:00
-    expect(schedule[2].scheduledTime).toEqual(new Date('2026-10-10T08:17:00.000Z'));
+    // 600s + 60s de transição = a segunda começa 660s depois da primeira.
+    expect(computeOffsets([600, 300, 900], 60)).toEqual([0, 660, 1020]);
   });
 
-  test('duração desconhecida (null) "quebra" o cursor: a própria bateria ainda recebe horário, as seguintes não', () => {
-    const start = new Date('2026-10-10T08:00:00.000Z');
-    const heatPlans = [{ durationSeconds: 600 }, { durationSeconds: null }, { durationSeconds: 300 }];
-    const schedule = computeHeatSchedule(heatPlans, { startCursor: start, transitionSeconds: 60 });
-
-    expect(schedule[0].scheduledTime).toEqual(new Date('2026-10-10T08:00:00.000Z'));
-    // 08:00 + 600s (10min) + 60s transição = 08:11:00 -- a própria bateria de
-    // duração desconhecida ainda recebe esse horário de início.
-    expect(schedule[1].scheduledTime).toEqual(new Date('2026-10-10T08:11:00.000Z'));
-    expect(schedule[2].scheduledTime).toBeNull(); // dali pra frente, ninguém mais recebe horário
+  test('duração desconhecida recebe horário, mas quebra a cadeia', () => {
+    expect(computeOffsets([600, null, 300], 60)).toEqual([0, 660, null]);
   });
 
-  test('transitionSeconds = 0 é válido (sem intervalo entre baterias)', () => {
-    const start = new Date('2026-10-10T08:00:00.000Z');
-    const heatPlans = [{ durationSeconds: 600 }, { durationSeconds: 600 }];
-    const schedule = computeHeatSchedule(heatPlans, { startCursor: start, transitionSeconds: 0 });
-    expect(schedule[1].scheduledTime).toEqual(new Date('2026-10-10T08:10:00.000Z'));
+  test('transição zero é válida (baterias emendadas)', () => {
+    expect(computeOffsets([600, 600], 0)).toEqual([0, 600]);
+  });
+
+  test('a primeira bateria começa sempre no instante zero do campeonato', () => {
+    expect(computeOffsets([600], 60)[0]).toBe(0);
   });
 
   test('lista vazia devolve lista vazia', () => {
-    expect(computeHeatSchedule([], { startCursor: new Date(), transitionSeconds: 60 })).toEqual([]);
+    expect(computeOffsets([], 60)).toEqual([]);
+  });
+
+  // O intervalo (migration 013) entra como folga extra DEPOIS de uma bateria
+  // específica — a última da prova. Vem por bateria e não por prova porque é
+  // percorrendo a lista achatada que se sabe onde uma prova termina.
+  test('intervalo depois de uma bateria empurra todas as seguintes', () => {
+    // 2 baterias de 600s, transição 60s, e 1800s de intervalo depois da 1ª.
+    expect(computeOffsets([600, 600], 60, [1800, 0])).toEqual([0, 2460]);
+  });
+
+  test('sem intervalo, o resultado é idêntico ao de antes', () => {
+    expect(computeOffsets([600, 600], 60, [0, 0])).toEqual(computeOffsets([600, 600], 60));
+  });
+
+  test('intervalo depois de bateria sem duração não ressuscita a cadeia', () => {
+    expect(computeOffsets([600, null, 300], 60, [0, 1800, 0])).toEqual([0, 660, null]);
   });
 });
