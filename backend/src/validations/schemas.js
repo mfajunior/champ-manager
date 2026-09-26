@@ -56,12 +56,19 @@ const teamUpdate = Joi.object({
   category_id: Joi.number().integer().positive(),
 }).min(1);
 
+// scoring_type_2 preenchido = prova com DUAS pontuações independentes
+// (migration 014). Cada uma tem a própria colocação e as duas contam no
+// placar, então a prova vale o dobro das outras — foi decisão explícita.
+// has_tiebreak liga o campo de desempate no lançamento; o desempate ordena
+// quem empatou e não aparece no placar.
 const workoutCreate = Joi.object({
   championship_id: Joi.number().integer().positive().required(),
   workout_number: Joi.number().integer().positive().required(),
   name: Joi.string().trim().min(1).required(),
   type: Joi.string().trim().allow(null, ''),
   scoring_type: Joi.string().valid(...ALLOWED_SCORING_TYPES),
+  scoring_type_2: Joi.string().valid(...ALLOWED_SCORING_TYPES).allow(null),
+  has_tiebreak: Joi.boolean(),
 });
 
 const workoutUpdate = Joi.object({
@@ -71,6 +78,10 @@ const workoutUpdate = Joi.object({
   scoring_type: Joi.string().valid(...ALLOWED_SCORING_TYPES),
   status: Joi.string().trim(),
   description: Joi.string().allow(null, ''),
+  // Intervalo depois desta prova, em segundos (migration 013). null remove.
+  break_after_seconds: Joi.number().integer().positive().allow(null),
+  scoring_type_2: Joi.string().valid(...ALLOWED_SCORING_TYPES).allow(null),
+  has_tiebreak: Joi.boolean(),
 }).min(1);
 
 // ---------------------------------------------------------------------------
@@ -120,7 +131,15 @@ const workoutCutSet = Joi.object({
   category_id: Joi.number().integer().positive().allow(null).default(null),
 });
 
+// Pré-visualização de rascunho: as faixas vão no corpo e nada é salvo.
+const pointsTablePreviewDraft = Joi.object({
+  max_points: Joi.number().integer().positive(),
+  places: Joi.number().integer().positive().max(500),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10).required(),
+});
+
 module.exports = {
+  pointsTablePreviewDraft,
   scoringModelSet,
   workoutCutSet,
   pointsTableCreate,

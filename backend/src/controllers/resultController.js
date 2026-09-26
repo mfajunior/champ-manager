@@ -104,7 +104,17 @@ const logAuditEntry = async ({ action, resultId, heatTeamId, rawValue, didNotFin
 // body: { heat_team_id, raw_value, did_not_finish }
 exports.create = async (req, res, next) => {
   try {
-    const { heat_team_id, raw_value, did_not_finish } = req.body;
+    const { heat_team_id, raw_value, did_not_finish, tiebreak_seconds } = req.body;
+    // Prova com duas pontuações lança uma por chamada (migration 014). Sem o
+    // campo, é a pontuação única de sempre — o que mantém todo cliente antigo
+    // funcionando sem mudar uma linha.
+    const scoreIndex = Number(req.body.score_index ?? 1);
+
+    if (![1, 2].includes(scoreIndex)) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'score_index deve ser 1 ou 2' },
+      });
+    }
 
     if (!heat_team_id) {
       return res.status(400).json({
@@ -127,11 +137,11 @@ exports.create = async (req, res, next) => {
       });
     }
 
-    // O banco já tem UNIQUE(heat_team_id), mas checar aqui devolve uma
-    // mensagem legível em vez do erro cru de violação de constraint.
+    // O banco já tem UNIQUE(heat_team_id, score_index), mas checar aqui
+    // devolve uma mensagem legível em vez do erro cru de constraint.
     const existing = await queryOne(
-      'SELECT id FROM results WHERE heat_team_id = $1',
-      [heat_team_id]
+      'SELECT id FROM results WHERE heat_team_id = $1 AND score_index = $2',
+      [heat_team_id, scoreIndex]
     );
 
     if (existing) {
@@ -146,10 +156,12 @@ exports.create = async (req, res, next) => {
     const isDnf = did_not_finish === true;
 
     const inserted = await queryOne(
-      `INSERT INTO results (heat_team_id, raw_value, did_not_finish, recorded_by)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO results (heat_team_id, raw_value, did_not_finish, recorded_by,
+                            score_index, tiebreak_seconds)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [heat_team_id, isDnf ? null : raw_value, isDnf, req.user.id]
+      [heat_team_id, isDnf ? null : raw_value, isDnf, req.user.id, scoreIndex,
+       tiebreak_seconds ?? null]
     );
 
     // Segundo SELECT: agora o trigger já rodou e o place está calculado.
@@ -303,8 +315,22 @@ exports.update = async (req, res, next) => {
     }
 
     await query(
-      'UPDATE results SET raw_value = $1, did_not_finish = $2 WHERE id = $3',
-      [nextDnf ? null : nextValue, nextDnf, id]
+      `UPDATE results
+          SET raw_value = $1,
+              did_not_finish = $2,
+              -- Mesma armadilha do intervalo: COALESCE não grava null, e
+              -- limpar o desempate é gravar null. O booleano separa "não
+              -- mandou o campo" de "mandou null".
+              tiebreak_seconds = CASE WHEN $4::boolean THEN $5::numeric
+                                      ELSE tiebreak_seconds END
+        WHERE id = $3`,
+      [
+        nextDnf ? null : nextValue,
+        nextDnf,
+        id,
+        Object.prototype.hasOwnProperty.call(req.body, 'tiebreak_seconds'),
+        req.body.tiebreak_seconds ?? null,
+      ]
     );
 
     const updated = await queryOne(

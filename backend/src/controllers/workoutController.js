@@ -1,4 +1,5 @@
-const { query, queryOne, queryAll } = require('../config/database');
+const { pool, query, queryOne, queryAll } = require('../config/database');
+const { rescheduleChampionship } = require('../models/schedule');
 
 /**
  * Uma prova (workout) pertence ao campeonato, não à categoria.
@@ -26,7 +27,7 @@ exports.create = async (req, res, next) => {
     // Presença dos obrigatórios e enum de scoring_type já validados pelo
     // middleware `validate(schemas.workoutCreate)` na rota. O que sobra aqui
     // é regra de negócio (default do campo, unicidade, FK) — não validação de forma.
-    const { championship_id, workout_number, name, type, scoring_type } = req.body;
+    const { championship_id, workout_number, name, type, scoring_type, scoring_type_2, has_tiebreak } = req.body;
     const scoringType = scoring_type || 'time';
 
     const championship = await queryOne(
@@ -55,10 +56,14 @@ exports.create = async (req, res, next) => {
     }
 
     const workout = await queryOne(
-      `INSERT INTO workouts (championship_id, workout_number, name, type, scoring_type, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO workouts (championship_id, workout_number, name, type, scoring_type, created_by,
+                            scoring_type_2, has_tiebreak)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, FALSE))
        RETURNING id, championship_id, workout_number, name, type, scoring_type, status, created_at`,
-      [championship_id, workout_number, name, type || null, scoringType, req.user.id]
+      [championship_id, workout_number, name, type || null, scoringType, req.user.id,
+        scoring_type_2 ?? null,
+        has_tiebreak ?? null,
+      ]
     );
 
     res.status(201).json({
@@ -97,7 +102,8 @@ exports.getAll = async (req, res, next) => {
 
     const workouts = await queryAll(
       `SELECT w.id, w.championship_id, w.workout_number, w.name, w.type, w.scoring_type,
-              w.status, w.created_at,
+              w.status, w.created_at, w.break_after_seconds,
+              w.scoring_type_2, w.has_tiebreak,
               COUNT(wv.id)::int AS variants_count
        FROM workouts w
        LEFT JOIN workout_variants wv ON wv.workout_id = w.id
@@ -123,7 +129,8 @@ exports.getById = async (req, res, next) => {
     const { id } = req.params;
 
     const workout = await queryOne(
-      `SELECT id, championship_id, workout_number, name, type, scoring_type, status, description, created_at
+      `SELECT id, championship_id, workout_number, name, type, scoring_type, status, description,
+              created_at, break_after_seconds, scoring_type_2, has_tiebreak
        FROM workouts WHERE id = $1`,
       [id]
     );
@@ -224,9 +231,20 @@ exports.update = async (req, res, next) => {
            scoring_type   = COALESCE($4, scoring_type),
            status         = COALESCE($5, status),
            description    = COALESCE($6, description),
+           -- COALESCE não serve aqui: remover o intervalo é gravar NULL, e
+           -- COALESCE(NULL, coluna) mantém o valor antigo. O booleano separa
+           -- "não mandou o campo" de "mandou null para remover".
+           break_after_seconds = CASE WHEN $8::boolean THEN $9::int
+                                      ELSE break_after_seconds END,
+           -- Mesmo motivo do intervalo: desmarcar "duas pontuações" é gravar
+           -- null, e COALESCE manteria o valor antigo.
+           scoring_type_2 = CASE WHEN $10::boolean THEN $11::varchar
+                                 ELSE scoring_type_2 END,
+           has_tiebreak = COALESCE($12, has_tiebreak),
            updated_at     = CURRENT_TIMESTAMP
        WHERE id = $7
-       RETURNING id, championship_id, workout_number, name, type, scoring_type, status, description, updated_at`,
+       RETURNING id, championship_id, workout_number, name, type, scoring_type, status, description,
+                 break_after_seconds, scoring_type_2, has_tiebreak, updated_at`,
       [
         workout_number ?? null,
         name ?? null,
@@ -235,8 +253,20 @@ exports.update = async (req, res, next) => {
         status ?? null,
         description ?? null,
         id,
+        Object.prototype.hasOwnProperty.call(req.body, 'break_after_seconds'),
+        req.body.break_after_seconds ?? null,
+        Object.prototype.hasOwnProperty.call(req.body, 'scoring_type_2'),
+        req.body.scoring_type_2 ?? null,
+        req.body.has_tiebreak ?? null,
       ]
     );
+
+    // Mexer no intervalo muda a hora de todas as baterias posteriores a esta
+    // prova. Quem recalcula é a agenda, não este controller.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'break_after_seconds')) {
+      await rescheduleChampionship(pool, updated.championship_id);
+      updated.break_after_seconds = req.body.break_after_seconds ?? null;
+    }
 
     res.status(200).json({
       data: updated,
@@ -253,7 +283,10 @@ exports.delete = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const workout = await queryOne('SELECT id FROM workouts WHERE id = $1', [id]);
+    const workout = await queryOne(
+      'SELECT id, championship_id FROM workouts WHERE id = $1',
+      [id]
+    );
 
     if (!workout) {
       return res.status(404).json({
@@ -262,6 +295,10 @@ exports.delete = async (req, res, next) => {
     }
 
     await query('DELETE FROM workouts WHERE id = $1', [id]);
+
+    // Apagar uma prova abre um buraco no meio do dia: as seguintes precisam
+    // subir. A agenda é função da sequência de provas, não do histórico.
+    await rescheduleChampionship(pool, workout.championship_id);
 
     res.status(200).json({
       data: null,

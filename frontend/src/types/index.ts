@@ -33,6 +33,71 @@ export interface Championship {
   lanes_per_heat: number | null;
   transition_seconds: number | null;
   start_time: string | null;
+  // Qual regra de pontuação vale (migration 011). 'legacy' é o default e o
+  // que toda competição existente continua usando sem nenhum UPDATE.
+  scoring_model: ScoringModel;
+  // Obrigatório quando scoring_model é 'points_table' — o banco tem CHECK
+  // garantindo isso, então não dá para ligar o modelo novo sem escolher.
+  points_table_id: number | null;
+}
+
+export type ScoringModel = 'legacy' | 'points_table';
+
+// Faixa da tabela de pontos: "da colocação start_place até end_place,
+// decrescer decrement pontos". end_place null = faixa aberta ("em diante").
+// A última faixa é sempre aberta, o que garante que nenhuma colocação fique
+// sem regra — inclusive as equipes que se inscreverem depois.
+export interface PointsTableRange {
+  id?: number;
+  start_place: number;
+  end_place: number | null;
+  decrement: number;
+}
+
+export interface PointsTable {
+  id: number;
+  championship_id: number;
+  name: string;
+  // Fixo em 100; não é campo de tela. Existe como coluna para o 100 não virar
+  // número mágico dentro da função PL/pgSQL.
+  max_points: number;
+  ranges: PointsTableRange[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PointsTablePreview {
+  points_table_id: number;
+  name: string;
+  max_points: number;
+  ranges: PointsTableRange[];
+  places: Array<{ place: number; points: number }>;
+  /** Primeira colocação que pontua zero; null se a tabela nunca zera. */
+  zeroes_at: number | null;
+  largest_category: { category_id: number; category_name: string; teams: number } | null;
+  /** Texto pronto do aviso quando a zeragem cai dentro da maior categoria. */
+  warning: string | null;
+}
+
+export interface WorkoutCut {
+  id: number;
+  workout_id: number;
+  /** null = linha padrão, vale para todas as categorias. */
+  category_id: number | null;
+  category_name?: string | null;
+  keep_top_n: number;
+}
+
+export interface EligibleTeamsCategory {
+  category_id: number;
+  category_name: string;
+  /** null quando a prova não tem corte configurado. */
+  keep_top_n: number | null;
+  eligible: Array<{ team_id: number; team_name: string }>;
+  /** Quem está escalado nas baterias hoje. */
+  scheduled: Array<{ team_id: number; team_name: string }>;
+  /** As baterias já geradas não batem mais com a classificação atual. */
+  outdated: boolean;
 }
 
 export interface Team {
@@ -69,6 +134,10 @@ export interface Workout {
   status: string;
   description?: string | null;
   created_at: string;
+  // Intervalo depois desta prova, em segundos (migration 013). null = sem
+  // intervalo. Fica na prova porque dentro de uma prova as baterias misturam
+  // categorias — abrir intervalo ali separaria quem compete em sequência.
+  break_after_seconds: number | null;
   variants_count?: number;
   variants?: WorkoutVariant[];
 }
