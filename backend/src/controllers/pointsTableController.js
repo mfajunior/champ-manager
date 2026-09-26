@@ -491,4 +491,126 @@ const setScoringModel = async (req, res, next) => {
   }
 };
 
-module.exports = { list, create, update, remove, preview, setScoringModel };
+/**
+ * POST /api/championships/:championship_id/points-tables/preview
+ * body: { ranges, max_points? }
+ *
+ * Pré-visualização de RASCUNHO: calcula a tabela sem salvar nada.
+ *
+ * Existe porque a pré-visualização só cumpre seu papel se acontecer ANTES de
+ * salvar — e salvar a tabela que o campeonato está usando reescreve o placar
+ * inteiro. Mostrar o efeito depois do estrago não ajuda ninguém.
+ *
+ * Como funciona: abre transação, grava uma tabela temporária, pede os números
+ * à MESMA points_for_place() de sempre e desfaz tudo. O `SET CONSTRAINTS ALL
+ * IMMEDIATE` força a validação das faixas a rodar aqui dentro, em vez de no
+ * commit que nunca vai acontecer — então o rascunho é validado igual ao
+ * definitivo.
+ *
+ * A alternativa seria refazer a aritmética em JS ou numa query própria. Seria
+ * mais curto e seria uma segunda régua: no dia em que a regra mudasse, a
+ * pré-visualização passaria a mentir, e ninguém descobriria até o placar sair
+ * diferente do que a tela prometeu.
+ */
+const previewDraft = async (req, res, next) => {
+  const { championship_id } = req.params;
+  const { ranges, max_points } = req.body;
+
+  if (!(await championshipExiste(championship_id))) {
+    return res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Campeonato não encontrado' },
+    });
+  }
+
+  const maiorCategoria = await queryOne(
+    `SELECT c.id AS category_id, c.name AS category_name, COUNT(t.id)::int AS teams
+       FROM categories c
+       LEFT JOIN teams t ON t.category_id = c.id
+      WHERE c.championship_id = $1
+      GROUP BY c.id, c.name
+      ORDER BY COUNT(t.id) DESC, c.id ASC
+      LIMIT 1`,
+    [championship_id]
+  );
+
+  const equipesNaMaior = maiorCategoria?.teams ?? 0;
+  const solicitado = Number(req.body.places);
+  const ate = Math.min(
+    MAX_PLACES_PREVIEW,
+    Number.isInteger(solicitado) && solicitado > 0 ? solicitado : Math.max(10, equipesNaMaior)
+  );
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const temporaria = await client.query(
+      `INSERT INTO points_tables (championship_id, name, max_points)
+       VALUES ($1, $2, COALESCE($3, 100)) RETURNING id, max_points`,
+      [championship_id, `__preview_${Date.now()}_${Math.random().toString(36).slice(2)}`, max_points ?? null]
+    );
+    const tabelaId = temporaria.rows[0].id;
+
+    const valores = ranges
+      .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
+      .join(', ');
+    const params = [tabelaId];
+    ranges.forEach((faixa) => {
+      params.push(faixa.start_place, faixa.end_place ?? null, faixa.decrement);
+    });
+    await client.query(
+      `INSERT INTO points_table_ranges (points_table_id, start_place, end_place, decrement)
+       VALUES ${valores}`,
+      params
+    );
+
+    // Antecipa a constraint trigger deferida: sem isso ela só rodaria no
+    // COMMIT, que aqui nunca acontece, e um rascunho inválido passaria.
+    await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+
+    const places = await client.query(
+      `SELECT g AS place, points_for_place($1, g)::int AS points
+         FROM generate_series(1, $2) g ORDER BY g`,
+      [tabelaId, ate]
+    );
+
+    const zeragem = await client.query(
+      `SELECT MIN(s.place)::int AS zeroes_at
+         FROM (SELECT g AS place, points_for_place($1, g) AS points
+                 FROM generate_series(1, $2) g) s
+        WHERE s.points = 0`,
+      [tabelaId, MAX_PLACES_PREVIEW]
+    );
+
+    const zeroesAt = zeragem.rows[0]?.zeroes_at ?? null;
+
+    await client.query('ROLLBACK');
+
+    const zeraDentroDaCompeticao = zeroesAt !== null && equipesNaMaior >= zeroesAt;
+
+    res.status(200).json({
+      data: {
+        points_table_id: null,
+        name: null,
+        max_points: temporaria.rows[0].max_points,
+        ranges,
+        places: places.rows,
+        zeroes_at: zeroesAt,
+        largest_category: maiorCategoria ?? null,
+      },
+      meta: {
+        draft: true,
+        warning: zeraDentroDaCompeticao
+          ? `A partir da ${zeroesAt}ª colocação a pontuação é zero, e a categoria ${maiorCategoria.category_name} tem ${equipesNaMaior} equipes.`
+          : null,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    return respondToPgError(error, res, next);
+  } finally {
+    client.release();
+  }
+};
+
+module.exports = { list, create, update, remove, preview, previewDraft, setScoringModel };

@@ -66,6 +66,16 @@ router.get(
   pointsTableController.preview
 );
 
+// POST .../points-tables/preview - Pré-visualizar SEM salvar (protegido).
+// Declarada antes de POST .../points-tables para o Express não casar
+// "preview" como se fosse parte daquela rota.
+router.post(
+  '/:championship_id/points-tables/preview',
+  authMiddleware,
+  validate(schemas.pointsTablePreviewDraft),
+  pointsTableController.previewDraft
+);
+
 // POST .../points-tables - Criar tabela com as faixas no mesmo corpo (protegido)
 router.post(
   '/:championship_id/points-tables',

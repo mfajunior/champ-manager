@@ -16,6 +16,15 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
     );
   }
 
+  // O modelo vem em cada linha (fetchStandings junta championships), e é o
+  // mesmo para o campeonato inteiro — ler da primeira linha basta.
+  const usandoPontos = standings[0].scoring_model === 'points_table';
+
+  // No modelo padrão a coluna é a SOMA DAS COLOCAÇÕES, onde menor é melhor.
+  // Chamar isso de "Pontos", como estava antes, sugeria o contrário para
+  // quem olha o telão: 3 parecia pior que 12.
+  const rotuloDaColuna = usandoPontos ? 'Pontos' : 'Soma';
+
   const byCategory = standings.reduce<Record<string, Standing[]>>((acc, standing) => {
     (acc[standing.category_name] ||= []).push(standing);
     return acc;
@@ -48,17 +57,25 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
               <tr className="border-b-2 border-secondary text-left text-xs font-bold uppercase tracking-widest text-muted-foreground">
                 <th className="py-2 pr-3">#</th>
                 <th className="py-2 pr-3">Equipe</th>
-                <th className="py-2 text-right">Pontos</th>
+                <th className="py-2 text-right">{rotuloDaColuna}</th>
               </tr>
             </thead>
             <tbody>
               {categoryStandings.map((standing) => {
                 const isExpanded = expandedTeamId === standing.team_id;
+                // Equipe fora do corte continua no placar com os pontos que
+                // conquistou — ela não sumiu da competição, só não disputa as
+                // provas seguintes. Some das baterias, não do histórico.
+                const cortada = standing.is_cut;
+                const valor = usandoPontos ? standing.total_points : standing.total_score;
+
                 return (
                   <Fragment key={standing.team_id}>
                     <tr
                       onClick={() => toggleTeam(standing.team_id)}
-                      className="cursor-pointer border-b border-border hover:bg-muted"
+                      className={`cursor-pointer border-b border-border hover:bg-muted ${
+                        cortada ? 'opacity-60' : ''
+                      }`}
                     >
                       <td className="py-3 pr-3 font-display text-2xl">
                         {standing.place ?? (
@@ -70,8 +87,15 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
                           {isExpanded ? '▾' : '▸'}
                         </span>
                         {standing.team_name}
+                        {cortada && (
+                          <span className="ml-2 whitespace-nowrap border border-border px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            fora do corte
+                          </span>
+                        )}
                       </td>
-                      <td className="py-3 text-right text-lg font-bold">{standing.total_score}</td>
+                      <td className="py-3 text-right text-lg font-bold">
+                        {valor ?? <span className="text-muted-foreground">—</span>}
+                      </td>
                     </tr>
                     {isExpanded && (
                       <tr className="border-b border-border bg-muted/40">

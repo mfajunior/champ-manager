@@ -160,6 +160,41 @@ describe('API das tabelas de pontos', () => {
       expect(res.body.meta.warning).toBeNull(); // 5 equipes, zera na 46ª
     });
 
+    test('rascunho: calcula sem salvar nada', async () => {
+      const antes = await request(app).get(`/api/championships/${championshipId}/points-tables`);
+
+      const res = await request(app)
+        .post(`/api/championships/${championshipId}/points-tables/preview`)
+        .set(auth())
+        .send({
+          places: 5,
+          ranges: [
+            { start_place: 1, end_place: 2, decrement: 10 },
+            { start_place: 3, end_place: null, decrement: 1 },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.meta.draft).toBe(true);
+      expect(res.body.data.places.map((p) => p.points)).toEqual([100, 90, 89, 88, 87]);
+
+      // E nada foi persistido: a transação foi desfeita.
+      const depois = await request(app).get(`/api/championships/${championshipId}/points-tables`);
+      expect(depois.body.data).toHaveLength(antes.body.data.length);
+    });
+
+    test('rascunho inválido é recusado igual ao definitivo', async () => {
+      const res = await request(app)
+        .post(`/api/championships/${championshipId}/points-tables/preview`)
+        .set(auth())
+        .send({ ranges: [{ start_place: 1, end_place: 5, decrement: 4 }] });
+
+      // Sem faixa aberta. O SET CONSTRAINTS ALL IMMEDIATE antecipa a validação
+      // para dentro da transação, que de outro modo nunca comitaria.
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toMatch(/aberta/);
+    });
+
     test('avisa quando a zeragem cai dentro da maior categoria', async () => {
       const ingreme = await criarTabela({
         name: 'Íngreme',
