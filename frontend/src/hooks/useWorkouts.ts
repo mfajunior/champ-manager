@@ -55,6 +55,9 @@ interface UpdateWorkoutInput extends Partial<CreateWorkoutInput> {
   status?: string;
   description?: string | null;
   break_after_seconds?: number | null;
+  /** Segunda pontuação da prova (migration 014); null remove. */
+  scoring_type_2?: ScoringType | null;
+  has_tiebreak?: boolean;
 }
 
 interface UpdateWorkoutResult {

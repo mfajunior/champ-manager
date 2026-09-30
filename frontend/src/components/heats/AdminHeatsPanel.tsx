@@ -85,6 +85,8 @@ export function AdminHeatsPanel({
           heats={heats.data}
           workoutId={selectedWorkout.id}
           scoringType={selectedWorkout.scoring_type}
+          scoringType2={selectedWorkout.scoring_type_2}
+          hasTiebreak={selectedWorkout.has_tiebreak}
           breakAfterSeconds={selectedWorkout.break_after_seconds}
         />
       )}

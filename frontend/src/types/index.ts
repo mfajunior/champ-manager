@@ -134,6 +134,10 @@ export interface Workout {
   status: string;
   description?: string | null;
   created_at: string;
+  /** Segunda pontuação da prova (migration 014). null = pontuação única. */
+  scoring_type_2: ScoringType | null;
+  /** Liga o campo de desempate no lançamento do resultado. */
+  has_tiebreak: boolean;
   // Intervalo depois desta prova, em segundos (migration 013). null = sem
   // intervalo. Fica na prova porque dentro de uma prova as baterias misturam
   // categorias — abrir intervalo ali separaria quem compete em sequência.
@@ -152,10 +156,19 @@ export interface HeatLane {
   // pode misturar categorias, então cada raia carrega a sua própria.
   category_id: number;
   category_name: string;
+  // Primeira pontuação: nomes de sempre, para prova de pontuação única não
+  // perceber diferença nenhuma.
   result_id: number | null;
   place: number | null;
   raw_value: string | null;
   did_not_finish: boolean | null;
+  /** Tempo de desempate em segundos — só ordena empates, não vale ponto. */
+  tiebreak_seconds: string | null;
+  // Segunda pontuação (migration 014). Tudo null quando a prova tem só uma.
+  result_id_2: number | null;
+  place_2: number | null;
+  raw_value_2: string | null;
+  did_not_finish_2: boolean | null;
 }
 
 export interface Heat {
@@ -193,6 +206,9 @@ export interface TeamWorkoutResult {
   raw_value: string | null;
   did_not_finish: boolean | null;
   place: number | null;
+  // Prova de duas pontuações devolve DUAS linhas para a mesma prova
+  // (migration 014). null quando a prova nem tem resultado lançado.
+  score_index: number | null;
 }
 
 export interface AuditLogEntry {
@@ -203,6 +219,11 @@ export interface AuditLogEntry {
   did_not_finish: boolean | null;
   place: number | null;
   changed_at: string;
+  // Qual das duas pontuações este evento mexeu (migration 015). O histórico é
+  // consultado pela RAIA, então numa prova de duas pontuações as duas
+  // histórias chegam juntas — sem isto não dá para separá-las nem para
+  // formatar cada valor com o tipo certo.
+  score_index: number;
   changed_by_id: number | null;
   changed_by_name: string | null;
   changed_by_email: string | null;

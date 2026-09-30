@@ -421,13 +421,27 @@ exports.getByWorkout = async (req, res, next) => {
     // para saber contra qual raia o resultado está sendo lançado.
     const heatIds = heats.map((h) => h.id);
     const lanes = await queryAll(
+      // DOIS JOINS, UM POR PONTUAÇÃO (migration 014)
+      //
+      // Um LEFT JOIN simples em results devolveria DUAS linhas por raia numa
+      // prova de duas pontuações, e a tela mostraria a equipe duplicada. Os
+      // joins são separados por score_index para que cada raia continue sendo
+      // uma linha só, agora carregando os dois resultados.
+      //
+      // Os campos da primeira pontuação mantêm os nomes de sempre
+      // (result_id, place, raw_value, did_not_finish), então quem só lida com
+      // prova de pontuação única não percebe diferença.
       `SELECT ht.id AS heat_team_id, ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
               c.id AS category_id, c.name AS category_name,
-              r.id AS result_id, r."place", r.raw_value, r.did_not_finish
+              r1.id AS result_id, r1."place", r1.raw_value, r1.did_not_finish,
+              r1.tiebreak_seconds,
+              r2.id AS result_id_2, r2."place" AS place_2, r2.raw_value AS raw_value_2,
+              r2.did_not_finish AS did_not_finish_2
        FROM heat_teams ht
        JOIN teams t ON t.id = ht.team_id
        JOIN categories c ON c.id = t.category_id
-       LEFT JOIN results r ON r.heat_team_id = ht.id
+       LEFT JOIN results r1 ON r1.heat_team_id = ht.id AND r1.score_index = 1
+       LEFT JOIN results r2 ON r2.heat_team_id = ht.id AND r2.score_index = 2
        WHERE ht.heat_id = ANY($1::int[])
        ORDER BY ht.lane_number ASC`,
       [heatIds]

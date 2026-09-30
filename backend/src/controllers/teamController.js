@@ -178,10 +178,19 @@ exports.getResults = async (req, res, next) => {
          w.id AS workout_id,
          w.workout_number,
          w.name AS workout_name,
-         w.scoring_type,
+         -- O tipo é da PONTUAÇÃO, não da prova: numa prova de duas
+         -- pontuações a segunda linha pode ser 'reps' enquanto a primeira é
+         -- 'time'. Resolver aqui (e não na tela) garante que cada linha já
+         -- chega com o tipo certo do próprio valor — a tela não tem o que
+         -- errar ao formatar.
+         CASE WHEN r.score_index = 2 THEN w.scoring_type_2 ELSE w.scoring_type END AS scoring_type,
          r.raw_value,
          r.did_not_finish,
-         r.place
+         r.place,
+         -- Prova de duas pontuações devolve DUAS linhas para a mesma prova
+         -- (migration 014). Sem o índice, a tela mostraria duas linhas
+         -- idênticas sem saber que são pontuações diferentes.
+         r.score_index
        FROM workouts w
        LEFT JOIN (
          SELECT h.workout_id, ht.id AS heat_team_id
@@ -191,7 +200,7 @@ exports.getResults = async (req, res, next) => {
        ) team_heat ON team_heat.workout_id = w.id
        LEFT JOIN results r ON r.heat_team_id = team_heat.heat_team_id
        WHERE w.championship_id = $1
-       ORDER BY w.workout_number ASC`,
+       ORDER BY w.workout_number ASC, r.score_index ASC NULLS FIRST`,
       [team.championship_id, team.id]
     );
 

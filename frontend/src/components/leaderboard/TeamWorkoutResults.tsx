@@ -43,9 +43,19 @@ export function TeamWorkoutResults({ teamId }: { teamId: number }) {
           const notYetPlayed = workout.raw_value === null && !workout.did_not_finish;
 
           return (
-            <tr key={workout.workout_id} className="border-b border-border/60 last:border-0">
+            // Prova de duas pontuações devolve DUAS linhas para a mesma prova
+            // (migration 014), então a chave precisa do índice — só o
+            // workout_id colidiria. O rótulo diz qual pontuação é qual; sem
+            // ele, a tela mostraria duas linhas iguais com números diferentes.
+            <tr
+              key={`${workout.workout_id}-${workout.score_index ?? 1}`}
+              className="border-b border-border/60 last:border-0"
+            >
               <td className="py-2 pr-3 text-sm">
                 Prova {workout.workout_number} — {workout.workout_name}
+                {workout.score_index === 2 && (
+                  <span className="ml-1.5 text-xs text-muted-foreground">(2ª pontuação)</span>
+                )}
               </td>
               <td className="py-2 pr-3 text-right text-sm">
                 {notYetPlayed ? (

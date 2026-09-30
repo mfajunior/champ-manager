@@ -9,6 +9,13 @@ interface CreateResultInput {
   heat_team_id: number;
   raw_value?: number;
   did_not_finish?: boolean;
+  /**
+   * Qual das pontuações da prova (migration 014). Ausente = 1, que é o
+   * comportamento de sempre para prova de pontuação única.
+   */
+  score_index?: 1 | 2;
+  /** Tempo de desempate, em segundos. Só ordena empates; não vale ponto. */
+  tiebreak_seconds?: number | null;
 }
 
 // Toda mutação de resultado invalida a lista de baterias da prova (que já
@@ -29,6 +36,7 @@ interface UpdateResultInput {
   id: number;
   raw_value?: number;
   did_not_finish?: boolean;
+  tiebreak_seconds?: number | null;
 }
 
 export function useUpdateResult(workoutId: number) {

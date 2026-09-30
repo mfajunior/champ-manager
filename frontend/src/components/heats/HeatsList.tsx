@@ -16,11 +16,16 @@ export function HeatsList({
   heats,
   workoutId,
   scoringType,
+  scoringType2 = null,
+  hasTiebreak = false,
   breakAfterSeconds = null,
 }: {
   heats: Heat[];
   workoutId: number;
   scoringType: ScoringType;
+  /** Segunda pontuação da prova (migration 014); null = pontuação única. */
+  scoringType2?: ScoringType | null;
+  hasTiebreak?: boolean;
   /** Intervalo depois da última bateria desta prova (migration 013). */
   breakAfterSeconds?: number | null;
 }) {
@@ -80,7 +85,14 @@ export function HeatsList({
               </thead>
               <tbody>
                 {heat.teams.map((lane) => (
-                  <LaneRow key={lane.heat_team_id} lane={lane} workoutId={workoutId} scoringType={scoringType} />
+                  <LaneRow
+                    key={lane.heat_team_id}
+                    lane={lane}
+                    workoutId={workoutId}
+                    scoringType={scoringType}
+                    scoringType2={scoringType2}
+                    hasTiebreak={hasTiebreak}
+                  />
                 ))}
               </tbody>
             </table>
