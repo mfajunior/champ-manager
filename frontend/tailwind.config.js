@@ -3,7 +3,7 @@ export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
-      // Tokens tirados de uma referência visual (ver claude/champy-decisoes-arquitetura.md,
+      // Tokens tirados de uma referência visual (ver docs/decisoes-arquitetura.md,
       // seção 9, no projeto) — não do template em si, só cor e tipografia.
       colors: {
         background: '#fcfdff',

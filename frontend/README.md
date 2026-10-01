@@ -27,7 +27,7 @@ de resultados) e o placar público ao vivo. Consome a API em `../backend`.
 ### 1. De onde vêm a paleta e a tipografia
 
 Cores, fontes e a ausência de `border-radius` em todo componente vêm de uma
-referência visual externa (ver `claude/champy-decisoes-arquitetura.md`, seção
+referência visual externa (ver `docs/decisoes-arquitetura.md`, seção
 9, no projeto) — não foi inventado nem copiado de um template pronto. O
 `destructive` (`#d43628`) especificamente **não é** o valor da referência
 original: foi recalculado para não colidir visualmente nem com o `brand` nem
