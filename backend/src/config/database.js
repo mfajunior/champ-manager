@@ -25,15 +25,40 @@ const useSSL = process.env.DB_SSL === 'true';
  * Pool de conexões PostgreSQL
  * Reutiliza conexões para melhor performance
  */
+/**
+ * DUAS FORMAS DE DIZER ONDE O BANCO ESTÁ
+ *
+ * As cinco variáveis DB_* continuam sendo o caminho de desenvolvimento e de
+ * teste: é o que o docker-compose levanta e o que o .env.test aponta.
+ *
+ * DATABASE_URL existe para hospedagem. Render, Neon e praticamente todo
+ * Postgres gerenciado entregam UMA string de conexão, não cinco campos —
+ * e, quando o banco é recriado, entregam uma string nova. Aceitar o formato
+ * deles significa que o provedor religa o backend sozinho, em vez de alguém
+ * copiar cinco valores à mão e errar um.
+ *
+ * Quando as duas existem, DATABASE_URL vence: ela só é definida onde alguém
+ * a definiu de propósito, enquanto as DB_* têm padrões que apontariam
+ * silenciosamente para o localhost errado.
+ */
+const conexao = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL }
+  : {
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME || 'champy_championship',
+    };
+
 const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'champy_championship',
+  ...conexao,
   max: 20, // máximo de conexões simultâneas
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  // Vale para os dois formatos: mesmo com sslmode na string de conexão, a
+  // opção explícita é a que o node-postgres usa. Por isso DB_SSL=true
+  // continua obrigatório em banco hospedado.
   ssl: useSSL ? { rejectUnauthorized: true } : false,
 });
 

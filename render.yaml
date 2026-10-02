@@ -1,0 +1,97 @@
+# Blueprint do ScoreUp no Render.
+#
+# Declara a infraestrutura como arquivo em vez de cliques. Importa por dois
+# motivos: a recriação do banco planejada para ~20/10 (o Postgres gratuito
+# expira 30 dias depois de criado) vira reprodutível, e o deploy fica
+# documentado para quem olhar o repositório depois.
+#
+# Plano gratuito em tudo. Duas consequências aceitas de propósito:
+#   - O web service hiberna após 15 min sem tráfego e leva ~1 min para voltar.
+#     No dia do evento isso é coberto por um pinger externo em /health.
+#   - O Postgres gratuito EXPIRA 30 dias após a criação e depois é apagado com
+#     os dados. Só pode haver um ativo por workspace. Daí o pg_dump ao fim de
+#     cada prova não ser recomendação, e sim a rede.
+
+databases:
+  - name: scoreup-db
+    plan: free
+    region: virginia
+
+services:
+  # ---------------------------------------------------------------- BACKEND
+  - type: web
+    name: scoreup-api
+    runtime: node
+    plan: free
+    region: virginia
+    rootDir: backend
+    # As migrations rodam no BUILD, não no start. É isso que torna a regra
+    # "migration antes do código" automática em vez de disciplina: o Render só
+    # troca a versão no ar depois que o build inteiro passa, então código novo
+    # nunca encontra banco velho. O migrate.js registra cada arquivo em
+    # schema_migrations e aplica cada um uma vez só, então repetir é inofensivo.
+    buildCommand: npm ci && npm run migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      # O Render injeta a string de conexão e a REESCREVE quando o banco é
+      # recriado — que é exatamente o que vai acontecer em ~20/10. Sem isto
+      # seriam cinco variáveis copiadas à mão, duas vezes.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: scoreup-db
+          property: connectionString
+      # Liga trust proxy no src/app.js: sem isso todos os espectadores chegam
+      # como o mesmo IP e dividem o balde de 300 requisições por 15 min.
+      - key: NODE_ENV
+        value: production
+      # A suíte provou que o código é independente de fuso, mas produção e
+      # desenvolvimento devem se comportar igual.
+      - key: TZ
+        value: America/Sao_Paulo
+      # Conexão interna do Render não costuma exigir TLS. Se o serviço não
+      # subir com erro de "server does not support SSL" ou o inverso, inverta
+      # este valor — a falha é barulhenta: o server.js faz process.exit(1) sem
+      # banco, então o serviço simplesmente não fica de pé.
+      - key: DB_SSL
+        value: "false"
+      # NUNCA debug aqui: o database.js imprime toda query executada nesse
+      # nível, e isso jogaria o SQL do campeonato inteiro nos logs.
+      - key: LOG_LEVEL
+        value: info
+      # 72h e não 24h: o organizador cadastra equipes e provas na véspera e
+      # chega na manhã seguinte: com 24h a sessão teria vencido.
+      - key: JWT_EXPIRES_IN
+        value: 72h
+      # Preenchidas no painel, não aqui. JWT_SECRET é segredo; CORS_ORIGIN só
+      # existe depois que o frontend ganhar URL.
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+
+  # --------------------------------------------------------------- FRONTEND
+  - type: web
+    name: scoreup
+    runtime: static
+    region: virginia
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    # Se o deploy reclamar que o caminho não existe, troque para
+    # ./frontend/dist — a documentação diz "relativo à raiz do repositório",
+    # mas com rootDir definido o comportamento usual é relativo a ele.
+    staticPublishPath: ./dist
+    envVars:
+      # Lida no BUILD, não em execução: o Vite grava o valor dentro do pacote.
+      # Mudar depois exige reconstruir. Preenchida no painel com a URL do
+      # scoreup-api, que só existe depois do primeiro deploy.
+      - key: VITE_API_URL
+        sync: false
+    # Sem isto, abrir /placar/16 direto (ou recarregar a página) devolve 404:
+    # o React Router resolve a rota no navegador, mas o servidor estático
+    # procura um arquivo com esse nome e não acha. Toda rota cai no index.html
+    # e o roteador assume dali.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
