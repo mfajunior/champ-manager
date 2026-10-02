@@ -1,0 +1,44 @@
+# Arquivos que NÃO entram na imagem Docker.
+#
+# POR QUE ESTE ARQUIVO EXISTE
+# O Dockerfile faz `COPY . .`, que copia a pasta inteira. Sem esta lista,
+# o .env e o .env.test — com a senha do Postgres e o JWT_SECRET reais —
+# iriam DENTRO da imagem. Uma imagem é distribuível: basta empurrar para
+# um registro, ou mandar para alguém depurar, e o segredo vai junto. Pior,
+# vai numa camada do histórico da imagem, então apagar o arquivo numa
+# etapa posterior não o remove de verdade.
+#
+# O .gitignore não cobre isso. São dois mecanismos independentes: um
+# decide o que vai para o Git, o outro o que vai para a imagem. Um arquivo
+# pode estar fora do Git e dentro da imagem, que é exatamente o caso aqui.
+
+# Segredos — o motivo principal do arquivo
+.env
+.env.test
+.env.local
+.env.*.local
+
+# Dependências: o Dockerfile roda `npm install --omit=dev` dentro do
+# contêiner. Copiar o node_modules da máquina de desenvolvimento além de
+# inchar a imagem leva binários compilados para o SO errado.
+node_modules
+npm-debug.log
+
+# Histórico do Git: a imagem não precisa, e o .git carrega todo o passado
+# do repositório, inclusive conteúdo já removido.
+.git
+.gitignore
+
+# Testes e cobertura: não rodam em produção.
+tests
+coverage
+.nyc_output
+
+# Configuração de CI e de editor
+.github
+.vscode
+.idea
+
+# Backups de banco que por acaso estejam na pasta
+*.sql.bak
+dump.sql
