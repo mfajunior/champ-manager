@@ -45,24 +45,20 @@ jobs:
         working-directory: backend
         run: npm ci
 
-      # As migrations rodam na ordem numérica do nome do arquivo (001, 002,
-      # 003...) — é a mesma ordem que tests/README.md documenta pra rodar
-      # manualmente, só automatizada aqui.
-      - name: Rodar migrations no banco de teste
-        working-directory: backend
-        env:
-          PGPASSWORD: champy_password
-        run: |
-          for f in migrations/*.sql; do
-            echo "Aplicando $f"
-            psql -h localhost -U champy_user -d champy_championship_test -f "$f"
-          done
-
       # tests/env.setup.js (carregado pelo jest.config.js) lê este arquivo via
       # dotenv antes de qualquer módulo do app subir — sem ele, src/config/database.js
       # tentaria usar as variáveis de ambiente de desenvolvimento (que não existem
       # neste runner) e falharia com o mesmo erro de SASL que já apareceu uma vez
       # neste projeto por causa de um .env.test vazio.
+      #
+      # Vem ANTES das migrations porque o `npm run migrate:test` também lê este
+      # arquivo para saber em qual banco aplicar.
+      #
+      # TZ não estava aqui e não era detalhe: a suíte não carrega src/server.js
+      # (o supertest importa src/app.js direto), então o fuso que o server.js
+      # fixa nunca valeu nos testes. Sem esta linha o runner roda em UTC
+      # enquanto a produção roda em America/Sao_Paulo, e heats-schedule.test.js
+      # verifica horário de bateria.
       - name: Criar .env.test
         working-directory: backend
         run: |
@@ -76,7 +72,19 @@ jobs:
           NODE_ENV=test
           JWT_SECRET=ci-test-secret-nao-usar-em-producao
           CORS_ORIGIN=http://localhost:3000
+          TZ=America/Sao_Paulo
           EOF
+
+      # Pelo `npm run migrate:test`, e não por um laço de `psql -f`, por dois
+      # motivos. O primeiro é que o psql SAI COM CÓDIGO ZERO mesmo quando o SQL
+      # falha, a menos que se passe ON_ERROR_STOP=1 — uma migration quebrada
+      # passaria batida aqui e só apareceria depois, disfarçada de teste
+      # falhando. O segundo é que este é o mesmo comando que roda em
+      # desenvolvimento e vai rodar em produção: o CI passa a exercitar o
+      # caminho real, incluindo o registro em schema_migrations.
+      - name: Rodar migrations no banco de teste
+        working-directory: backend
+        run: npm run migrate:test
 
       - name: Rodar testes (unit + integração)
         working-directory: backend
