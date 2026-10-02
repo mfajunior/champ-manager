@@ -74,16 +74,32 @@ const query = async (text, params = []) => {
     const violacaoEsperada =
       error.code === 'P0001' || String(error.code || '').startsWith('23');
 
+    // Na suíte, essa violação esperada vira ruído: vários testes exercitam
+    // DE PROPÓSITO o caminho em que o banco recusa (excluir tabela de pontos
+    // em uso, faixa de pontuação com buraco), e cada um imprime um aviso que
+    // não diz nada sobre o resultado da execução. É o mesmo motivo que já faz
+    // o tests/env.setup.js silenciar o log de query: o "163 passed" não pode
+    // ficar enterrado sob saída que ninguém vai ler.
+    //
+    // Só em teste, e só quando LOG_LEVEL não é debug — a mesma alavanca do log
+    // de query, então LOG_LEVEL=debug npm test continua mostrando tudo ao
+    // depurar uma execução específica. Em produção nada muda: o aviso existe
+    // justamente para o log do dia do evento.
+    const silenciarNaSuite =
+      process.env.NODE_ENV === 'test' && process.env.LOG_LEVEL !== 'debug';
+
     if (violacaoEsperada) {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        message: 'Constraint recusou a operação',
-        code: error.code,
-        constraint: error.constraint,
-        table: error.table,
-        detail: error.message,
-        timestamp: new Date().toISOString(),
-      }));
+      if (!silenciarNaSuite) {
+        console.warn(JSON.stringify({
+          level: 'warn',
+          message: 'Constraint recusou a operação',
+          code: error.code,
+          constraint: error.constraint,
+          table: error.table,
+          detail: error.message,
+          timestamp: new Date().toISOString(),
+        }));
+      }
     } else {
       console.error('Database error:', error);
     }
