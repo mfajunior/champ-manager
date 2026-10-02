@@ -74,7 +74,8 @@ services:
   - type: web
     name: scoreup
     runtime: static
-    region: virginia
+    # Sem region: site estático é servido por CDN global, e o Render recusa o
+    # blueprint se a chave aparecer aqui ("static sites cannot have a region").
     rootDir: frontend
     buildCommand: npm ci && npm run build
     # Se o deploy reclamar que o caminho não existe, troque para
