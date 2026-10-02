@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ChampionshipSettingsForm } from '../components/championships/ChampionshipSettingsForm';
+import { ScoringPanel } from '../components/championships/ScoringPanel';
 import { AdminHeatsPanel } from '../components/heats/AdminHeatsPanel';
 import { TeamForm } from '../components/teams/TeamForm';
 import { TeamsTable } from '../components/teams/TeamsTable';
@@ -16,7 +17,7 @@ import { useWorkouts } from '../hooks/useWorkouts';
 import { formatDate } from '../lib/format';
 import { getErrorMessage } from '../lib/errors';
 
-type Tab = 'equipes' | 'provas' | 'baterias';
+type Tab = 'equipes' | 'provas' | 'baterias' | 'pontuacao';
 
 export function ChampionshipDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -91,6 +92,14 @@ export function ChampionshipDetailPage() {
         >
           Baterias
         </button>
+        <button
+          onClick={() => setTab('pontuacao')}
+          className={`pb-3 text-sm font-bold uppercase tracking-wider ${
+            tab === 'pontuacao' ? 'border-b-2 border-brand text-brand' : 'text-muted-foreground'
+          }`}
+        >
+          Pontuação
+        </button>
       </div>
 
       <div className="mt-6">
@@ -147,6 +156,10 @@ export function ChampionshipDetailPage() {
               <AdminHeatsPanel championship={championship.data} workouts={workouts.data} />
             )}
           </div>
+        )}
+
+        {tab === 'pontuacao' && championship.data && (
+          <ScoringPanel championship={championship.data} />
         )}
       </div>
 

@@ -33,6 +33,71 @@ export interface Championship {
   lanes_per_heat: number | null;
   transition_seconds: number | null;
   start_time: string | null;
+  // Qual regra de pontuação vale (migration 011). 'legacy' é o default e o
+  // que toda competição existente continua usando sem nenhum UPDATE.
+  scoring_model: ScoringModel;
+  // Obrigatório quando scoring_model é 'points_table' — o banco tem CHECK
+  // garantindo isso, então não dá para ligar o modelo novo sem escolher.
+  points_table_id: number | null;
+}
+
+export type ScoringModel = 'legacy' | 'points_table';
+
+// Faixa da tabela de pontos: "da colocação start_place até end_place,
+// decrescer decrement pontos". end_place null = faixa aberta ("em diante").
+// A última faixa é sempre aberta, o que garante que nenhuma colocação fique
+// sem regra — inclusive as equipes que se inscreverem depois.
+export interface PointsTableRange {
+  id?: number;
+  start_place: number;
+  end_place: number | null;
+  decrement: number;
+}
+
+export interface PointsTable {
+  id: number;
+  championship_id: number;
+  name: string;
+  // Fixo em 100; não é campo de tela. Existe como coluna para o 100 não virar
+  // número mágico dentro da função PL/pgSQL.
+  max_points: number;
+  ranges: PointsTableRange[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PointsTablePreview {
+  points_table_id: number;
+  name: string;
+  max_points: number;
+  ranges: PointsTableRange[];
+  places: Array<{ place: number; points: number }>;
+  /** Primeira colocação que pontua zero; null se a tabela nunca zera. */
+  zeroes_at: number | null;
+  largest_category: { category_id: number; category_name: string; teams: number } | null;
+  /** Texto pronto do aviso quando a zeragem cai dentro da maior categoria. */
+  warning: string | null;
+}
+
+export interface WorkoutCut {
+  id: number;
+  workout_id: number;
+  /** null = linha padrão, vale para todas as categorias. */
+  category_id: number | null;
+  category_name?: string | null;
+  keep_top_n: number;
+}
+
+export interface EligibleTeamsCategory {
+  category_id: number;
+  category_name: string;
+  /** null quando a prova não tem corte configurado. */
+  keep_top_n: number | null;
+  eligible: Array<{ team_id: number; team_name: string }>;
+  /** Quem está escalado nas baterias hoje. */
+  scheduled: Array<{ team_id: number; team_name: string }>;
+  /** As baterias já geradas não batem mais com a classificação atual. */
+  outdated: boolean;
 }
 
 export interface Team {
@@ -69,6 +134,14 @@ export interface Workout {
   status: string;
   description?: string | null;
   created_at: string;
+  /** Segunda pontuação da prova (migration 014). null = pontuação única. */
+  scoring_type_2: ScoringType | null;
+  /** Liga o campo de desempate no lançamento do resultado. */
+  has_tiebreak: boolean;
+  // Intervalo depois desta prova, em segundos (migration 013). null = sem
+  // intervalo. Fica na prova porque dentro de uma prova as baterias misturam
+  // categorias — abrir intervalo ali separaria quem compete em sequência.
+  break_after_seconds: number | null;
   variants_count?: number;
   variants?: WorkoutVariant[];
 }
@@ -83,10 +156,19 @@ export interface HeatLane {
   // pode misturar categorias, então cada raia carrega a sua própria.
   category_id: number;
   category_name: string;
+  // Primeira pontuação: nomes de sempre, para prova de pontuação única não
+  // perceber diferença nenhuma.
   result_id: number | null;
   place: number | null;
   raw_value: string | null;
   did_not_finish: boolean | null;
+  /** Tempo de desempate em segundos — só ordena empates, não vale ponto. */
+  tiebreak_seconds: string | null;
+  // Segunda pontuação (migration 014). Tudo null quando a prova tem só uma.
+  result_id_2: number | null;
+  place_2: number | null;
+  raw_value_2: string | null;
+  did_not_finish_2: boolean | null;
 }
 
 export interface Heat {
@@ -124,6 +206,9 @@ export interface TeamWorkoutResult {
   raw_value: string | null;
   did_not_finish: boolean | null;
   place: number | null;
+  // Prova de duas pontuações devolve DUAS linhas para a mesma prova
+  // (migration 014). null quando a prova nem tem resultado lançado.
+  score_index: number | null;
 }
 
 export interface AuditLogEntry {
@@ -134,6 +219,11 @@ export interface AuditLogEntry {
   did_not_finish: boolean | null;
   place: number | null;
   changed_at: string;
+  // Qual das duas pontuações este evento mexeu (migration 015). O histórico é
+  // consultado pela RAIA, então numa prova de duas pontuações as duas
+  // histórias chegam juntas — sem isto não dá para separá-las nem para
+  // formatar cada valor com o tipo certo.
+  score_index: number;
   changed_by_id: number | null;
   changed_by_name: string | null;
   changed_by_email: string | null;
@@ -146,7 +236,17 @@ export interface Standing {
   category_name: string;
   gender?: Category['gender'];
   level?: Category['level'];
+  /** Qual regra de pontuação o campeonato usa (migration 011). */
+  scoring_model: 'legacy' | 'points_table';
+  /** Soma das colocações — menor é melhor. É o que o modelo `legacy` ranqueia. */
   total_score: number;
+  // Pontos do modelo `points_table` — maior é melhor. Null no `legacy`, onde
+  // pontos não existem: 0 sugeriria "fez zero pontos" onde a resposta certa é
+  // "essa conta não se aplica". O contrato foi estendido, não redefinido —
+  // total_score continua significando o que sempre significou.
+  total_points: number | null;
+  /** Fora do corte de alguma prova: mantém os pontos, sai das baterias. */
+  is_cut: boolean;
   // null até a equipe ter pelo menos 1 resultado lançado em algum lugar do
   // campeonato (é quando o trigger do banco calcula o place de verdade,
   // inclusive das que ainda não pontuaram — ver leaderboardController.js).

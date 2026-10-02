@@ -1,4 +1,26 @@
 // src/server.js
+
+/**
+ * O fuso do processo é fixado ANTES de qualquer outro require, porque o Node
+ * lê process.env.TZ na primeira vez que um Date é construído — depois disso,
+ * mudar a variável não tem mais efeito garantido.
+ *
+ * Por que fixar: sem isso, o fuso é o da máquina onde o backend estiver
+ * rodando. No PC do organizador é UTC-3; num container ou na Render é UTC. O
+ * mesmo código passava a se comportar de dois jeitos, e descobrir isso no dia
+ * do evento é tarde demais.
+ *
+ * Isto NÃO é o que faz o horário das baterias funcionar — esse caminho não
+ * constrói Date nenhum (ver models/schedule.js e frontend/src/lib/format.ts).
+ * É rede de segurança para todo o resto que ainda usa Date: datas de
+ * campeonato, carimbos de criação, e qualquer código futuro que esqueça o
+ * cuidado.
+ *
+ * A variável continua podendo ser sobrescrita pelo ambiente, para não travar
+ * quem um dia rodar isto fora do Brasil.
+ */
+process.env.TZ = process.env.TZ || 'America/Sao_Paulo';
+
 const http = require('http');
 const app = require('./app');
 const { attachSocket } = require('./socket');

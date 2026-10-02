@@ -1,5 +1,6 @@
 const { pool, queryOne, queryAll } = require('../config/database');
 const { fetchStandings } = require('../models/standings');
+const { rescheduleChampionship } = require('../models/schedule');
 
 /**
  * ORDEM FIXA DE DISPUTA
@@ -57,22 +58,6 @@ exports.chunkIntoHeats = chunkIntoHeats;
  * null e todas as baterias SEGUINTES também ficam sem horário — não dá pra
  * saber quando uma bateria começa sem saber quando a anterior termina.
  */
-const computeHeatSchedule = (heatPlans, { startCursor, transitionSeconds }) => {
-  let cursor = startCursor;
-  return heatPlans.map((plan) => {
-    if (!cursor) {
-      return { scheduledTime: null };
-    }
-    const scheduledTime = new Date(cursor.getTime());
-    if (typeof plan.durationSeconds === 'number') {
-      cursor = new Date(cursor.getTime() + (plan.durationSeconds + transitionSeconds) * 1000);
-    } else {
-      cursor = null;
-    }
-    return { scheduledTime };
-  });
-};
-exports.computeHeatSchedule = computeHeatSchedule;
 
 // POST /api/workouts/:workout_id/heats  (protegido)
 // body: { force? }
@@ -160,6 +145,47 @@ exports.generate = async (req, res, next) => {
       return acc;
     }, {});
 
+    // CORTE POR PROVA
+    //
+    // Quando a prova tem corte configurado ("só o top 4 disputa"), apenas as
+    // classificadas entram nas baterias. Quem decide quem passa é
+    // eligible_teams_for_workout no banco (migration 012) — a MESMA função que
+    // a tela de cortes consulta. Se este controller tivesse a própria noção de
+    // "top 4", ela divergiria da mostrada ao organizador no primeiro empate, e
+    // ele veria uma lista na tela e outra na raia.
+    //
+    // A consulta só acontece quando existe corte. Sem corte, o caminho é
+    // exatamente o de antes: este é o endpoint mais arriscado do backend e
+    // não é hora de mudar o comportamento de quem não pediu nada.
+    const corteConfigurado = await queryOne(
+      'SELECT 1 AS existe FROM workout_cuts WHERE workout_id = $1 LIMIT 1',
+      [workout_id]
+    );
+
+    if (corteConfigurado) {
+      // Uma query para todas as categorias, via LATERAL, em vez de uma
+      // chamada por categoria dentro de um loop.
+      const classificadas = await queryAll(
+        `SELECT c.id AS category_id, e AS team_id
+           FROM categories c
+           CROSS JOIN LATERAL eligible_teams_for_workout($1, c.id) e
+          WHERE c.championship_id = $2`,
+        [workout_id, workout.championship_id]
+      );
+
+      const permitidasPorCategoria = classificadas.reduce((acc, linha) => {
+        (acc[linha.category_id] ||= new Set()).add(Number(linha.team_id));
+        return acc;
+      }, {});
+
+      for (const categoryId of Object.keys(teamsByCategory)) {
+        const permitidas = permitidasPorCategoria[categoryId] || new Set();
+        teamsByCategory[categoryId] = teamsByCategory[categoryId].filter((team) =>
+          permitidas.has(Number(team.id))
+        );
+      }
+    }
+
     // ORDEM DE DISPUTA DENTRO DE CADA CATEGORIA
     //
     // Por padrão é o id da equipe — ordem de cadastro, que não significa
@@ -234,6 +260,20 @@ exports.generate = async (req, res, next) => {
       });
     }
 
+    // O corte pode ter deixado a prova sem ninguém (top N maior que zero, mas
+    // nenhuma equipe pontuou ainda, ou cortes empilhados). Melhor dizer isso
+    // do que gerar zero baterias em silêncio e o organizador descobrir na hora.
+    if (assignments.length === 0) {
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: corteConfigurado
+            ? 'O corte configurado não deixou nenhuma equipe classificada para esta prova.'
+            : 'Nenhuma equipe registrada neste campeonato',
+        },
+      });
+    }
+
     const chunks = chunkIntoHeats(assignments, lanes);
 
     const heatPlans = chunks.map((chunk) => {
@@ -243,35 +283,11 @@ exports.generate = async (req, res, next) => {
       return { lanesUsed: chunk, durationSeconds: hasAllCaps ? Math.max(...caps) : null };
     });
 
-    // Âncora: continua de onde a última bateria já agendada no campeonato
-    // (de QUALQUER prova) parou. Só cai pro início do campeonato se essa é a
-    // primeira bateria com horário calculado do evento inteiro. Isso é o que
-    // permite gerar prova por prova, em ordem, e sair com uma agenda contínua
-    // o dia todo — sem coordenar manualmente entre provas.
-    const previousAnchor = await queryOne(
-      `SELECT MAX(h.scheduled_time + (h.duration_seconds || ' seconds')::interval) AS last_end
-       FROM heats h
-       JOIN workouts w ON w.id = h.workout_id
-       WHERE w.championship_id = $1
-         AND h.workout_id != $2
-         AND h.scheduled_time IS NOT NULL
-         AND h.duration_seconds IS NOT NULL`,
-      [workout.championship_id, workout_id]
-    );
-
-    // O tempo de transição também vale entre a última bateria de uma prova e
-    // a primeira da próxima — baterias são sequenciais no dia inteiro, não só
-    // dentro da mesma prova. Sem somar aqui, gerar prova por prova comprimia
-    // esse intervalo (bug encontrado testando: heat final do WOD1 terminava
-    // e o heat inicial do WOD2 começava no mesmo instante, sem transição).
-    let startCursor = null;
-    if (previousAnchor.last_end) {
-      startCursor = new Date(new Date(previousAnchor.last_end).getTime() + transitionSeconds * 1000);
-    } else if (championship.start_time_str) {
-      startCursor = new Date(`${championship.date_str}T${championship.start_time_str}`);
-    }
-
-    const schedule = computeHeatSchedule(heatPlans, { startCursor, transitionSeconds });
+    // O horário de cada bateria não é decidido aqui. Depois de gravar as
+    // baterias, a agenda do campeonato INTEIRO é recalculada em
+    // models/schedule.js, na ordem das provas — é o que faz a prova 1 começar
+    // na hora configurada e as seguintes se ajustarem quando ela muda de
+    // tamanho, independentemente da ordem em que foram geradas.
 
     await client.query('BEGIN');
 
@@ -282,14 +298,17 @@ exports.generate = async (req, res, next) => {
     for (let i = 0; i < heatPlans.length; i += 1) {
       const heatNumber = i + 1;
       const plan = heatPlans[i];
-      const { scheduledTime } = schedule[i];
 
       // eslint-disable-next-line no-await-in-loop
       const heat = await client.query(
         `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
-        [workout_id, heatNumber, scheduledTime, plan.durationSeconds]
+         RETURNING id, workout_id, heat_number,
+                   to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+                   duration_seconds, status`,
+        // scheduled_time entra nulo: quem preenche é rescheduleChampionship
+        // abaixo, ainda dentro desta transação.
+        [workout_id, heatNumber, null, plan.durationSeconds]
       );
 
       const heatRow = heat.rows[0];
@@ -325,6 +344,22 @@ exports.generate = async (req, res, next) => {
       });
     }
 
+    // Reagenda o campeonato inteiro, não só esta prova: mudar o tamanho de uma
+    // prova empurra todas as seguintes.
+    await rescheduleChampionship(client, workout.championship_id);
+
+    // Relê os horários recém-calculados — createdHeats foi montado antes do
+    // reagendamento e teria scheduled_time nulo na resposta.
+    const { rows: horarios } = await client.query(
+      `SELECT id, to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time
+         FROM heats WHERE workout_id = $1`,
+      [workout_id]
+    );
+    const horarioPorBateria = new Map(horarios.map((h) => [h.id, h.scheduled_time]));
+    createdHeats.forEach((h) => {
+      h.scheduled_time = horarioPorBateria.get(h.id) ?? null;
+    });
+
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -338,6 +373,7 @@ exports.generate = async (req, res, next) => {
         heatsCreated: heatPlans.length,
         replacedExistingResults: existingResults.total > 0,
         orderedByStandings: order_by_standings === true,
+        cutApplied: Boolean(corteConfigurado),
       },
     });
   } catch (error) {
@@ -364,7 +400,9 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     const heats = await queryAll(
-      `SELECT id, workout_id, heat_number, scheduled_time, duration_seconds, status
+      `SELECT id, workout_id, heat_number,
+              to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+              duration_seconds, status
        FROM heats
        WHERE workout_id = $1
        ORDER BY heat_number ASC`,
@@ -383,13 +421,27 @@ exports.getByWorkout = async (req, res, next) => {
     // para saber contra qual raia o resultado está sendo lançado.
     const heatIds = heats.map((h) => h.id);
     const lanes = await queryAll(
+      // DOIS JOINS, UM POR PONTUAÇÃO (migration 014)
+      //
+      // Um LEFT JOIN simples em results devolveria DUAS linhas por raia numa
+      // prova de duas pontuações, e a tela mostraria a equipe duplicada. Os
+      // joins são separados por score_index para que cada raia continue sendo
+      // uma linha só, agora carregando os dois resultados.
+      //
+      // Os campos da primeira pontuação mantêm os nomes de sempre
+      // (result_id, place, raw_value, did_not_finish), então quem só lida com
+      // prova de pontuação única não percebe diferença.
       `SELECT ht.id AS heat_team_id, ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
               c.id AS category_id, c.name AS category_name,
-              r.id AS result_id, r."place", r.raw_value, r.did_not_finish
+              r1.id AS result_id, r1."place", r1.raw_value, r1.did_not_finish,
+              r1.tiebreak_seconds,
+              r2.id AS result_id_2, r2."place" AS place_2, r2.raw_value AS raw_value_2,
+              r2.did_not_finish AS did_not_finish_2
        FROM heat_teams ht
        JOIN teams t ON t.id = ht.team_id
        JOIN categories c ON c.id = t.category_id
-       LEFT JOIN results r ON r.heat_team_id = ht.id
+       LEFT JOIN results r1 ON r1.heat_team_id = ht.id AND r1.score_index = 1
+       LEFT JOIN results r2 ON r2.heat_team_id = ht.id AND r2.score_index = 2
        WHERE ht.heat_id = ANY($1::int[])
        ORDER BY ht.lane_number ASC`,
       [heatIds]
@@ -454,7 +506,9 @@ exports.update = async (req, res, next) => {
            status         = COALESCE($2, status),
            updated_at     = CURRENT_TIMESTAMP
        WHERE id = $3
-       RETURNING id, workout_id, heat_number, scheduled_time, duration_seconds, status`,
+       RETURNING id, workout_id, heat_number,
+                   to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
+                   duration_seconds, status`,
       [scheduled_time ?? null, status ?? null, id]
     );
 

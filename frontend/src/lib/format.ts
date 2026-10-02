@@ -18,40 +18,70 @@ export function formatDate(isoDate: string): string {
 }
 
 /**
- * heats.scheduled_time é TIMESTAMP sem fuso no Postgres (mesma armadilha do
- * formatDate acima). O horário aí dentro é sempre o horário LOCAL do
- * campeonato (07:00 que você digitou em "Hora de início" continua sendo
- * literalmente 07:00 no banco — nunca teve conversão de fuso nenhuma).
+ * HORÁRIO DE BATERIA É HORÁRIO DE PAREDE, NÃO INSTANTE
  *
- * O problema é só na hora de exibir: o driver `pg` devolve esse valor como
- * um objeto Date tratando os dígitos crus como se fossem UTC (ex.: 07:00 no
- * banco vira um Date cujo instante UTC é 07:00Z). Formatar isso com
- * toLocaleTimeString() converte esse "07:00 rotulado como UTC" pro fuso do
- * navegador (Brasília, UTC-3) — e 07:00 UTC menos 3h exibe 04:00. É
- * exatamente o bug que você viu: campeonato configurado pra 07h, baterias
- * calculadas mostrando 04h.
+ * "A bateria começa às 08:00" não é um ponto na linha do tempo universal — é o
+ * que o relógio da parede do box vai mostrar. Por isso heats.scheduled_time é
+ * TIMESTAMP sem fuso no banco (a migration 009 deixou essa coluna de fora de
+ * propósito) e o backend passou a devolvê-la como texto puro via to_char:
+ * "2026-12-12T08:00:00", sem Z e sem offset.
  *
- * A correção é a mesma ideia do formatDate: nunca deixar o navegador
- * converter fuso nesse valor. Os componentes UTC do Date (getUTCHours/
- * getUTCMinutes) são exatamente os dígitos originais gravados no banco —
- * extraindo direto deles, sem toLocaleTimeString(), o horário exibido volta
- * a bater com o que foi digitado.
+ * POR QUE A VERSÃO ANTERIOR PARECIA CERTA E NÃO ERA
+ *
+ * O código aqui usava `new Date(iso)` + `getUTCHours()`, com o raciocínio de
+ * que "o driver pg devolve um Date tratando os dígitos crus como se fossem
+ * UTC". Isso não é verdade: o pg interpreta um TIMESTAMP sem fuso no fuso do
+ * PROCESSO Node. Só parece UTC quando o processo roda em UTC.
+ *
+ * Medido, com 08:00 gravado no banco:
+ *   backend em container UTC   -> chega "08:00Z" -> getUTCHours mostra 08:00 ✓
+ *   backend no Windows (UTC-3) -> chega "11:00Z" -> getUTCHours mostra 11:00 ✗
+ *
+ * Ou seja: o horário exibido dependia de ONDE o backend rodava. Rodando por
+ * `npm run dev` fora do container, o dia inteiro aparecia três horas adiantado.
+ * É a mesma classe de bug que a migration 009 corrigiu no histórico de
+ * lançamentos, reaparecendo pelo outro lado — e o comentário antigo deste
+ * arquivo registrava o sintoma certo com a causa errada, que foi o que
+ * permitiu ele voltar.
+ *
+ * A CORREÇÃO: NÃO CONSTRUIR Date
+ *
+ * Sem Date, não há fuso para converter errado. As duas funções abaixo mexem na
+ * string e em minutos — o resultado é o mesmo no seu PC, no container e na
+ * Render.
  */
-export function formatTime(isoDateTime: string): string {
-  const date = new Date(isoDateTime);
-  const hours = String(date.getUTCHours()).padStart(2, '0');
-  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-  return `${hours}:${minutes}`;
+
+const HHMM = /^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/;
+
+/** "2026-12-12T08:00:00" -> "08:00" */
+export function formatTime(wallClock: string): string {
+  const match = HHMM.exec(wallClock);
+  if (match) {
+    return `${match[1]}:${match[2]}`;
+  }
+
+  // Tolerância para um valor que ainda venha com fuso (endpoint que não passou
+  // pelo to_char, ou resposta antiga em cache): melhor mostrar algo coerente
+  // com o relógio de quem está olhando do que quebrar a tela.
+  const date = new Date(wallClock);
+  if (Number.isNaN(date.getTime())) return '--:--';
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 /**
- * O mesmo tratamento de formatTime, para um instante deslocado N segundos a
- * partir do horário da bateria — é assim que se chega ao FIM dela (início +
- * duração calculada). A soma acontece em milissegundos e o resultado volta
- * a ser lido pelos componentes UTC, então nenhum fuso entra na conta em
- * nenhum momento (ver a explicação em formatTime acima).
+ * O horário N segundos depois — é assim que se chega ao FIM de uma bateria
+ * (início + duração) e, daí, à janela de transição até a próxima.
+ *
+ * Aritmética de minutos, sem Date. O módulo de 1440 evita devolver "25:30" se
+ * um campeonato virar o dia — não é cenário de CrossFit, mas custa uma linha.
  */
-export function formatTimeAfter(isoDateTime: string, seconds: number): string {
-  const base = new Date(isoDateTime);
-  return formatTime(new Date(base.getTime() + seconds * 1000).toISOString());
+export function formatTimeAfter(wallClock: string, seconds: number): string {
+  const match = HHMM.exec(wallClock);
+  if (!match) return formatTime(wallClock);
+
+  const totalMinutos =
+    Number(match[1]) * 60 + Number(match[2]) + Math.floor(seconds / 60);
+  const doDia = ((totalMinutos % 1440) + 1440) % 1440;
+
+  return `${String(Math.floor(doDia / 60)).padStart(2, '0')}:${String(doDia % 60).padStart(2, '0')}`;
 }

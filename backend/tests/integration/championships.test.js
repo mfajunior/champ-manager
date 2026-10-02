@@ -137,6 +137,30 @@ describe('Championships (integração com banco real)', () => {
       .send({ is_active: true });
   });
 
+  /**
+   * Regressão de um bug real: a tela de pontuação lia championship.scoring_model
+   * para saber qual opção marcar, mas getById e getAll usam lista explícita de
+   * colunas e não incluíam as novas. O campo chegava undefined, a interface
+   * mostrava "Pontuação padrão" marcada para sempre, e clicar nela não fazia
+   * nada — clique em rádio já marcado não dispara onChange. O organizador
+   * trocava o modelo, o banco obedecia, e a tela continuava afirmando o
+   * contrário.
+   *
+   * O tipo TypeScript declarava o campo como obrigatório e não pegou nada:
+   * tipo descreve o que se espera da resposta, não valida o que o servidor
+   * mandou. Quem pega isso é teste na fronteira.
+   */
+  test('GET devolve as colunas de pontuação, que a tela usa para saber o modelo ativo', async () => {
+    const detalhe = await request(app).get(`/api/championships/${championshipId}`);
+    expect(detalhe.body.data).toHaveProperty('scoring_model', 'legacy');
+    expect(detalhe.body.data).toHaveProperty('points_table_id', null);
+
+    const lista = await request(app).get('/api/championships');
+    const naLista = lista.body.data.find((c) => c.id === championshipId);
+    expect(naLista).toHaveProperty('scoring_model', 'legacy');
+    expect(naLista).toHaveProperty('points_table_id', null);
+  });
+
   test('DELETE /:id apaga o campeonato e arrasta as categorias por CASCADE', async () => {
     const del = await request(app)
       .delete(`/api/championships/${championshipId}`)

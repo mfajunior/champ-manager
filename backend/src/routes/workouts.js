@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const workoutController = require('../controllers/workoutController');
+const workoutCutController = require('../controllers/workoutCutController');
 const heatController = require('../controllers/heatController');
 const { authMiddleware } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
@@ -54,5 +55,28 @@ router.put(
 
 // DELETE /api/workouts/:id - Deletar prova (protegido)
 router.delete('/:id', authMiddleware, workoutController.delete);
+
+// ---------------------------------------------------------------------------
+// Corte por prova: "esta prova é disputada só pelo top N de cada categoria"
+// ---------------------------------------------------------------------------
+
+// GET /api/workouts/:workout_id/cut - Cortes configurados (público)
+router.get('/:workout_id/cut', workoutCutController.get);
+
+// PUT /api/workouts/:workout_id/cut - Configurar o corte (protegido)
+router.put(
+  '/:workout_id/cut',
+  authMiddleware,
+  validate(schemas.workoutCutSet),
+  workoutCutController.upsert
+);
+
+// DELETE /api/workouts/:workout_id/cut?category_id=N - Remover (protegido)
+router.delete('/:workout_id/cut', authMiddleware, workoutCutController.remove);
+
+// GET /api/workouts/:workout_id/eligible-teams - Quem disputa, por categoria,
+// e se as baterias já geradas ainda batem com essa lista (público: a tela de
+// baterias precisa disso antes de gerar).
+router.get('/:workout_id/eligible-teams', workoutCutController.eligibleTeams);
 
 module.exports = router;

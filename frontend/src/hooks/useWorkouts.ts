@@ -43,6 +43,23 @@ export function useCreateWorkout(championshipId: number) {
   });
 }
 
+/**
+ * O update aceita mais campos que o create: descrição, status e o intervalo
+ * depois da prova, que só fazem sentido numa prova que já existe.
+ *
+ * break_after_seconds aceita null explicitamente — é assim que se REMOVE o
+ * intervalo. O backend distingue "não mandou o campo" de "mandou null" com
+ * hasOwnProperty, porque COALESCE não consegue gravar null.
+ */
+interface UpdateWorkoutInput extends Partial<CreateWorkoutInput> {
+  status?: string;
+  description?: string | null;
+  break_after_seconds?: number | null;
+  /** Segunda pontuação da prova (migration 014); null remove. */
+  scoring_type_2?: ScoringType | null;
+  has_tiebreak?: boolean;
+}
+
 interface UpdateWorkoutResult {
   workout: Workout;
   warning?: string;
@@ -51,7 +68,7 @@ interface UpdateWorkoutResult {
 export function useUpdateWorkout(championshipId: number, workoutId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: Partial<CreateWorkoutInput>): Promise<UpdateWorkoutResult> => {
+    mutationFn: async (input: UpdateWorkoutInput): Promise<UpdateWorkoutResult> => {
       const response = (await api.put<Workout>(
         `/api/workouts/${workoutId}`,
         input
@@ -61,6 +78,8 @@ export function useUpdateWorkout(championshipId: number, workoutId: number) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workoutKeys.byChampionship(championshipId) });
       queryClient.invalidateQueries({ queryKey: workoutKeys.detail(workoutId) });
+      // Mexer no intervalo reagenda as baterias de todas as provas seguintes.
+      queryClient.invalidateQueries({ queryKey: ['heats'] });
     },
   });
 }

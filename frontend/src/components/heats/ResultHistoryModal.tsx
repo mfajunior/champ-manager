@@ -12,17 +12,33 @@ const ACTION_LABELS: Record<string, string> = {
   deleted: 'Removido',
 };
 
+/**
+ * Histórico de uma RAIA — criação, correções e remoção do resultado.
+ *
+ * PROVA DE DUAS PONTUAÇÕES (migrations 014 e 015)
+ *
+ * O histórico é consultado por heat_team_id, e não por result_id, porque a
+ * raia sobrevive ao resultado apagado. A consequência é que numa prova de
+ * duas pontuações as duas histórias chegam na mesma lista: por isso cada
+ * evento traz o próprio score_index, que aqui decide duas coisas — o rótulo
+ * que separa uma pontuação da outra e o TIPO usado para formatar o valor.
+ * Formatar tudo com o tipo da primeira pontuação mostrava 180 repetições
+ * como "03:00".
+ */
 export function ResultHistoryModal({
   heatTeamId,
   teamName,
   scoringType,
+  scoringType2 = null,
   onClose,
 }: {
   heatTeamId: number;
   teamName: string;
   scoringType: ScoringType;
+  scoringType2?: ScoringType | null;
   onClose: () => void;
 }) {
+  const temDuasPontuacoes = scoringType2 !== null;
   const history = useResultHistory(heatTeamId);
 
   return (
@@ -41,6 +57,11 @@ export function ResultHistoryModal({
               <div className="flex items-center justify-between">
                 <span className="font-bold uppercase tracking-wider text-xs">
                   {ACTION_LABELS[entry.action] ?? entry.action}
+                  {temDuasPontuacoes && (
+                    <span className="ml-1.5 font-normal normal-case tracking-normal text-muted-foreground">
+                      · pontuação {entry.score_index}
+                    </span>
+                  )}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {new Date(entry.changed_at).toLocaleString('pt-BR')}
@@ -51,7 +72,9 @@ export function ResultHistoryModal({
                   ? 'WO (não terminou)'
                   : entry.raw_value !== null
                     ? (() => {
-                        const display = formatResultDisplay(entry.raw_value, scoringType);
+                        const tipo =
+                          entry.score_index === 2 && scoringType2 ? scoringType2 : scoringType;
+                        const display = formatResultDisplay(entry.raw_value, tipo);
                         return `Valor: ${display.value}${display.unit ? ` ${display.unit}` : ''}${
                           entry.place ? ` · colocação ${entry.place}º` : ''
                         }`;

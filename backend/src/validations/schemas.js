@@ -56,12 +56,19 @@ const teamUpdate = Joi.object({
   category_id: Joi.number().integer().positive(),
 }).min(1);
 
+// scoring_type_2 preenchido = prova com DUAS pontuações independentes
+// (migration 014). Cada uma tem a própria colocação e as duas contam no
+// placar, então a prova vale o dobro das outras — foi decisão explícita.
+// has_tiebreak liga o campo de desempate no lançamento; o desempate ordena
+// quem empatou e não aparece no placar.
 const workoutCreate = Joi.object({
   championship_id: Joi.number().integer().positive().required(),
   workout_number: Joi.number().integer().positive().required(),
   name: Joi.string().trim().min(1).required(),
   type: Joi.string().trim().allow(null, ''),
   scoring_type: Joi.string().valid(...ALLOWED_SCORING_TYPES),
+  scoring_type_2: Joi.string().valid(...ALLOWED_SCORING_TYPES).allow(null),
+  has_tiebreak: Joi.boolean(),
 });
 
 const workoutUpdate = Joi.object({
@@ -71,9 +78,72 @@ const workoutUpdate = Joi.object({
   scoring_type: Joi.string().valid(...ALLOWED_SCORING_TYPES),
   status: Joi.string().trim(),
   description: Joi.string().allow(null, ''),
+  // Intervalo depois desta prova, em segundos (migration 013). null remove.
+  break_after_seconds: Joi.number().integer().positive().allow(null),
+  scoring_type_2: Joi.string().valid(...ALLOWED_SCORING_TYPES).allow(null),
+  has_tiebreak: Joi.boolean(),
 }).min(1);
 
+// ---------------------------------------------------------------------------
+// Tabelas de pontos do modelo points_table (migrations 011 e 012)
+// ---------------------------------------------------------------------------
+
+// end_place null = faixa aberta ("desta colocação em diante"). Que a última
+// faixa SEJA aberta, que comecem na 1ª colocação e que sejam contínuas é
+// verificado pela constraint trigger no banco, não aqui: é validação de
+// conjunto, e Joi valida uma faixa de cada vez. Aqui só o formato.
+const pointsTableRange = Joi.object({
+  start_place: Joi.number().integer().min(1).required(),
+  end_place: Joi.number().integer().min(1).allow(null).default(null),
+  decrement: Joi.number().integer().min(0).required(),
+});
+
+// max(10) é guarda contra payload absurdo, não a regra do produto: a decisão
+// foi que a TELA oferece no máximo 3 faixas e o banco suporta N, para afrouxar
+// depois ser mudança só de interface. Travar em 3 aqui transformaria a API no
+// limite e contrariaria isso.
+const pointsTableCreate = Joi.object({
+  name: Joi.string().trim().min(2).required(),
+  max_points: Joi.number().integer().positive(),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10).required(),
+});
+
+// Mandar `ranges` substitui TODAS as faixas — não existe edição individual,
+// porque faixas só fazem sentido como conjunto contínuo.
+const pointsTableUpdate = Joi.object({
+  name: Joi.string().trim().min(2),
+  max_points: Joi.number().integer().positive(),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10),
+}).min(1);
+
+// Troca do modelo de pontuação do campeonato. confirm existe porque a troca
+// reescreve o placar inteiro — mesmo padrão do force ao regerar baterias.
+const scoringModelSet = Joi.object({
+  scoring_model: Joi.string().valid('legacy', 'points_table').required(),
+  points_table_id: Joi.number().integer().positive().allow(null),
+  confirm: Joi.boolean().default(false),
+});
+
+// Corte da prova. category_id nulo (ou ausente) é a linha padrão, que vale
+// para todas as divisões; com categoria, sobrescreve a padrão só naquela.
+const workoutCutSet = Joi.object({
+  keep_top_n: Joi.number().integer().positive().required(),
+  category_id: Joi.number().integer().positive().allow(null).default(null),
+});
+
+// Pré-visualização de rascunho: as faixas vão no corpo e nada é salvo.
+const pointsTablePreviewDraft = Joi.object({
+  max_points: Joi.number().integer().positive(),
+  places: Joi.number().integer().positive().max(500),
+  ranges: Joi.array().items(pointsTableRange).min(1).max(10).required(),
+});
+
 module.exports = {
+  pointsTablePreviewDraft,
+  scoringModelSet,
+  workoutCutSet,
+  pointsTableCreate,
+  pointsTableUpdate,
   authLogin,
   championshipCreate,
   championshipUpdate,

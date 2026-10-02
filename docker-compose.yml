@@ -4,6 +4,11 @@ services:
     image: postgres:16-alpine
     container_name: champy-db
     environment:
+      # Mesmo fuso do backend. Sem isto o container sobe em UTC e um
+      # CURRENT_TIMESTAMP gravado numa coluna sem fuso (schema_migrations,
+      # por exemplo) registra três horas à frente do relógio de quem operou.
+      TZ: ${TZ:-America/Sao_Paulo}
+      PGTZ: ${TZ:-America/Sao_Paulo}
       POSTGRES_USER: ${DB_USER:?defina DB_USER no .env}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no .env}
       POSTGRES_DB: ${DB_NAME:?defina DB_NAME no .env}
@@ -27,6 +32,7 @@ services:
       dockerfile: Dockerfile
     container_name: champy-backend
     environment:
+      TZ: ${TZ:-America/Sao_Paulo}
       NODE_ENV: ${NODE_ENV:-development}
       DB_HOST: postgres
       DB_PORT: 5432

@@ -91,12 +91,21 @@ const broadcastLeaderboard = async (req, heatTeamId) => {
  * best-effort como o WebSocket. Se a escrita falhar, a request inteira falha
  * (o catch dos controllers chama next(error) normalmente).
  */
-const logAuditEntry = async ({ action, resultId, heatTeamId, rawValue, didNotFinish, place, userId }) => {
+const logAuditEntry = async ({
+  action,
+  resultId,
+  heatTeamId,
+  rawValue,
+  didNotFinish,
+  place,
+  scoreIndex,
+  userId,
+}) => {
   await query(
     `INSERT INTO result_audit_log
-       (heat_team_id, result_id, action, raw_value, did_not_finish, "place", changed_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [heatTeamId, resultId, action, rawValue, didNotFinish, place, userId]
+       (heat_team_id, result_id, action, raw_value, did_not_finish, "place", score_index, changed_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [heatTeamId, resultId, action, rawValue, didNotFinish, place, scoreIndex ?? 1, userId]
   );
 };
 
@@ -104,7 +113,17 @@ const logAuditEntry = async ({ action, resultId, heatTeamId, rawValue, didNotFin
 // body: { heat_team_id, raw_value, did_not_finish }
 exports.create = async (req, res, next) => {
   try {
-    const { heat_team_id, raw_value, did_not_finish } = req.body;
+    const { heat_team_id, raw_value, did_not_finish, tiebreak_seconds } = req.body;
+    // Prova com duas pontuações lança uma por chamada (migration 014). Sem o
+    // campo, é a pontuação única de sempre — o que mantém todo cliente antigo
+    // funcionando sem mudar uma linha.
+    const scoreIndex = Number(req.body.score_index ?? 1);
+
+    if (![1, 2].includes(scoreIndex)) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'score_index deve ser 1 ou 2' },
+      });
+    }
 
     if (!heat_team_id) {
       return res.status(400).json({
@@ -127,11 +146,11 @@ exports.create = async (req, res, next) => {
       });
     }
 
-    // O banco já tem UNIQUE(heat_team_id), mas checar aqui devolve uma
-    // mensagem legível em vez do erro cru de violação de constraint.
+    // O banco já tem UNIQUE(heat_team_id, score_index), mas checar aqui
+    // devolve uma mensagem legível em vez do erro cru de constraint.
     const existing = await queryOne(
-      'SELECT id FROM results WHERE heat_team_id = $1',
-      [heat_team_id]
+      'SELECT id FROM results WHERE heat_team_id = $1 AND score_index = $2',
+      [heat_team_id, scoreIndex]
     );
 
     if (existing) {
@@ -146,15 +165,17 @@ exports.create = async (req, res, next) => {
     const isDnf = did_not_finish === true;
 
     const inserted = await queryOne(
-      `INSERT INTO results (heat_team_id, raw_value, did_not_finish, recorded_by)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO results (heat_team_id, raw_value, did_not_finish, recorded_by,
+                            score_index, tiebreak_seconds)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
-      [heat_team_id, isDnf ? null : raw_value, isDnf, req.user.id]
+      [heat_team_id, isDnf ? null : raw_value, isDnf, req.user.id, scoreIndex,
+       tiebreak_seconds ?? null]
     );
 
     // Segundo SELECT: agora o trigger já rodou e o place está calculado.
     const result = await queryOne(
-      `SELECT id, heat_team_id, "place", raw_value, did_not_finish, recorded_at
+      `SELECT id, heat_team_id, "place", raw_value, did_not_finish, recorded_at, score_index
        FROM results WHERE id = $1`,
       [inserted.id]
     );
@@ -166,6 +187,7 @@ exports.create = async (req, res, next) => {
       rawValue: result.raw_value,
       didNotFinish: result.did_not_finish,
       place: result.place,
+      scoreIndex: result.score_index,
       userId: req.user.id,
     });
 
@@ -193,7 +215,7 @@ exports.getByWorkout = async (req, res, next) => {
     }
 
     const workout = await queryOne(
-      'SELECT id, scoring_type FROM workouts WHERE id = $1',
+      'SELECT id, scoring_type, scoring_type_2 FROM workouts WHERE id = $1',
       [workout_id]
     );
 
@@ -208,17 +230,27 @@ exports.getByWorkout = async (req, res, next) => {
     // passaram a poder misturar categorias (ver migration 005), uma bateria não
     // tem mais categoria própria.
     const results = await queryAll(
+      // score_index no SELECT e no ORDER BY: uma prova de duas pontuações
+      // (migration 014) tem DUAS linhas de resultado por equipe, e sem o campo
+      // quem consome não teria como saber qual é qual.
       `SELECT r.id, r.heat_team_id, r."place", r.raw_value, r.did_not_finish, r.recorded_at,
+              r.score_index, r.tiebreak_seconds,
+              -- O tipo é da PONTUAÇÃO, não da prova: numa prova de duas
+              -- pontuações a segunda pode ser 'reps' com a primeira em
+              -- 'time'. Vem por linha para quem consome não precisar cruzar
+              -- score_index com o meta na mão — e errar.
+              CASE WHEN r.score_index = 2 THEN w.scoring_type_2 ELSE w.scoring_type END AS scoring_type,
               t.id AS team_id, t.name AS team_name,
               t.category_id, c.name AS category_name
        FROM results r
        JOIN heat_teams ht ON ht.id = r.heat_team_id
        JOIN heats h ON h.id = ht.heat_id
+       JOIN workouts w ON w.id = h.workout_id
        JOIN teams t ON t.id = ht.team_id
        JOIN categories c ON c.id = t.category_id
        WHERE h.workout_id = $1
          AND ($2::int IS NULL OR t.category_id = $2::int)
-       ORDER BY c.id ASC, r."place" ASC`,
+       ORDER BY c.id ASC, r.score_index ASC, r."place" ASC`,
       [workout_id, category_id || null]
     );
 
@@ -227,6 +259,7 @@ exports.getByWorkout = async (req, res, next) => {
       meta: {
         message: 'Resultados recuperados com sucesso',
         scoringType: workout.scoring_type,
+        scoringType2: workout.scoring_type_2,
         total: results.length,
       },
     });
@@ -255,7 +288,7 @@ exports.getHistory = async (req, res, next) => {
 
     const history = await queryAll(
       `SELECT ral.id, ral.result_id, ral.action, ral.raw_value, ral.did_not_finish,
-              ral."place", ral.changed_at,
+              ral."place", ral.changed_at, ral.score_index,
               u.id AS changed_by_id, u.name AS changed_by_name, u.email AS changed_by_email
        FROM result_audit_log ral
        LEFT JOIN users u ON u.id = ral.changed_by
@@ -303,12 +336,26 @@ exports.update = async (req, res, next) => {
     }
 
     await query(
-      'UPDATE results SET raw_value = $1, did_not_finish = $2 WHERE id = $3',
-      [nextDnf ? null : nextValue, nextDnf, id]
+      `UPDATE results
+          SET raw_value = $1,
+              did_not_finish = $2,
+              -- Mesma armadilha do intervalo: COALESCE não grava null, e
+              -- limpar o desempate é gravar null. O booleano separa "não
+              -- mandou o campo" de "mandou null".
+              tiebreak_seconds = CASE WHEN $4::boolean THEN $5::numeric
+                                      ELSE tiebreak_seconds END
+        WHERE id = $3`,
+      [
+        nextDnf ? null : nextValue,
+        nextDnf,
+        id,
+        Object.prototype.hasOwnProperty.call(req.body, 'tiebreak_seconds'),
+        req.body.tiebreak_seconds ?? null,
+      ]
     );
 
     const updated = await queryOne(
-      `SELECT id, heat_team_id, "place", raw_value, did_not_finish, recorded_at
+      `SELECT id, heat_team_id, "place", raw_value, did_not_finish, recorded_at, score_index
        FROM results WHERE id = $1`,
       [id]
     );
@@ -320,6 +367,7 @@ exports.update = async (req, res, next) => {
       rawValue: updated.raw_value,
       didNotFinish: updated.did_not_finish,
       place: updated.place,
+      scoreIndex: updated.score_index,
       userId: req.user.id,
     });
 
@@ -344,7 +392,7 @@ exports.delete = async (req, res, next) => {
     const { id } = req.params;
 
     const result = await queryOne(
-      'SELECT id, heat_team_id, raw_value, did_not_finish, "place" FROM results WHERE id = $1',
+      'SELECT id, heat_team_id, raw_value, did_not_finish, "place", score_index FROM results WHERE id = $1',
       [id]
     );
 
@@ -365,6 +413,7 @@ exports.delete = async (req, res, next) => {
       rawValue: result.raw_value,
       didNotFinish: result.did_not_finish,
       place: result.place,
+      scoreIndex: result.score_index,
       userId: req.user.id,
     });
 

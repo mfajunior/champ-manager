@@ -4,6 +4,9 @@ import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { Select } from '../components/ui/Select';
 import { Spinner } from '../components/ui/Spinner';
 import { WarningBanner } from '../components/ui/WarningBanner';
+import { WorkoutBreakForm } from '../components/workouts/WorkoutBreakForm';
+import { WorkoutScoringForm } from '../components/workouts/WorkoutScoringForm';
+import { WorkoutCutForm } from '../components/workouts/WorkoutCutForm';
 import { WorkoutVariantEditor } from '../components/workouts/WorkoutVariantEditor';
 import { useChampionship } from '../hooks/useChampionships';
 import { useUpdateWorkout, useWorkout } from '../hooks/useWorkouts';
@@ -89,6 +92,21 @@ export function WorkoutDetailPage() {
       )}
 
       <section className="mt-8">
+        <h2 className="mb-3 text-xl">Pontuação da prova</h2>
+        <div className="mb-8">
+          <WorkoutScoringForm championshipId={championshipId} workout={workout.data} />
+        </div>
+
+        <h2 className="mb-3 text-xl">Intervalo depois desta prova</h2>
+        <div className="mb-8">
+          <WorkoutBreakForm championshipId={championshipId} workout={workout.data} />
+        </div>
+
+        <h2 className="mb-3 text-xl">Corte da prova</h2>
+        <div className="mb-8">
+          <WorkoutCutForm workoutId={workoutId} />
+        </div>
+
         <h2 className="mb-3 text-xl">Variantes por categoria</h2>
         <div className="flex flex-col gap-3">
           {categories.map((category) => (

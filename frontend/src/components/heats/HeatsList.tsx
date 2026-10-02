@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { HeatBreakBanner } from './HeatBreakBanner';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { LaneRow } from './LaneRow';
 import { formatTime } from '../../lib/format';
@@ -15,10 +16,18 @@ export function HeatsList({
   heats,
   workoutId,
   scoringType,
+  scoringType2 = null,
+  hasTiebreak = false,
+  breakAfterSeconds = null,
 }: {
   heats: Heat[];
   workoutId: number;
   scoringType: ScoringType;
+  /** Segunda pontuação da prova (migration 014); null = pontuação única. */
+  scoringType2?: ScoringType | null;
+  hasTiebreak?: boolean;
+  /** Intervalo depois da última bateria desta prova (migration 013). */
+  breakAfterSeconds?: number | null;
 }) {
   if (heats.length === 0) {
     return (
@@ -76,12 +85,24 @@ export function HeatsList({
               </thead>
               <tbody>
                 {heat.teams.map((lane) => (
-                  <LaneRow key={lane.heat_team_id} lane={lane} workoutId={workoutId} scoringType={scoringType} />
+                  <LaneRow
+                    key={lane.heat_team_id}
+                    lane={lane}
+                    workoutId={workoutId}
+                    scoringType={scoringType}
+                    scoringType2={scoringType2}
+                    hasTiebreak={hasTiebreak}
+                  />
                 ))}
               </tbody>
             </table>
           </div>
           {heats[index + 1] && <HeatTransitionBanner from={heat} to={heats[index + 1]} />}
+          {/* O intervalo entra depois da ÚLTIMA bateria da prova, nunca no
+              meio: entre categorias da mesma prova não pode haver pausa. */}
+          {!heats[index + 1] && breakAfterSeconds && (
+            <HeatBreakBanner lastHeat={heat} breakSeconds={breakAfterSeconds} />
+          )}
         </Fragment>
       ))}
     </div>
