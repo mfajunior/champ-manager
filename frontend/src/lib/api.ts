@@ -66,9 +66,20 @@ interface RequestOptions {
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  // Content-Type SÓ quando há corpo. Mandá-lo num GET não é inofensivo: tira a
+  // chamada da categoria de "requisição simples" do CORS (que só aceita
+  // text/plain, multipart/form-data e x-www-form-urlencoded) e obriga o
+  // navegador a um preflight OPTIONS antes de cada leitura. Nas telas públicas
+  // não há token, então esse cabeçalho era o único motivo do preflight.
+  //
+  // Seguro porque cabeçalho e corpo andam juntos: sem corpo, o fetch não envia
+  // Content-Length, o express.json() entra no caminho de "sem corpo" e define
+  // req.body = {}. Nenhum controller recebe undefined.
+  const headers: Record<string, string> = {};
+
+  if (body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   // Guardado porque o tratamento do 401 depende disso: 401 numa chamada que
   // MANDOU token é sessão morta; 401 numa chamada sem token é outra coisa

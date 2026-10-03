@@ -41,9 +41,20 @@ if (process.env.NODE_ENV === 'production') {
 
 // Security
 app.use(helmet());
+// maxAge: o navegador manda um OPTIONS (preflight) antes de cada chamada que
+// não seja "requisição simples" do CORS. Sem maxAge vale o padrão do Chrome,
+// 5 segundos — e aí quase toda chamada vem em par, o que medimos em produção:
+// 103 requisições num passeio de 1,4 min, ~41% delas preflight.
+//
+// Duas horas é o teto que o Chrome aceita (o Firefox vai a 24h, mas o excesso
+// é ignorado em silêncio, não é erro). Elas não contam no rate limit, porque
+// este cors() responde o OPTIONS e encerra ANTES do apiLimiter montado abaixo
+// — mas custam ida e volta de rede, CPU e banda, que no celular de quem está
+// no box é o que dá a sensação de lentidão.
 app.use(cors({
   origin: corsOriginChecker,
   credentials: true,
+  maxAge: 7200,
 }));
 
 // Rate limiting geral da API — desligado em teste (ver middleware/rateLimiter.js).
