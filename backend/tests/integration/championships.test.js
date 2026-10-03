@@ -13,6 +13,7 @@ const { pool } = require('../../src/config/database');
 describe('Championships (integração com banco real)', () => {
   let token;
   let championshipId;
+  const extras = []; // campeonatos criados pelos testes de data, limpos no afterAll
 
   beforeAll(async () => {
     const email = `jest-champ-${Date.now()}-${Math.random().toString(36).slice(2)}@champy.local`;
@@ -22,6 +23,9 @@ describe('Championships (integração com banco real)', () => {
   afterAll(async () => {
     if (championshipId) {
       await pool.query('DELETE FROM championships WHERE id = $1', [championshipId]);
+    }
+    if (extras.length > 0) {
+      await pool.query('DELETE FROM championships WHERE id = ANY($1::int[])', [extras]);
     }
     await pool.end();
   });
@@ -39,6 +43,90 @@ describe('Championships (integração com banco real)', () => {
       .post('/api/championships')
       .set('Authorization', `Bearer ${token}`)
       .send({ name: 'Sem Data', location: 'Box X' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  /**
+   * DATA GRAVADA == DATA ENVIADA
+   *
+   * Esta é a regressão de um bug que chegou a produção: `date` era validado
+   * com `Joi.date().iso()`, que converte a string num Date do JavaScript.
+   * Daí o driver pg serializava esse Date no fuso do processo (-03:00 em
+   * produção) e o Postgres truncava para DATE, gravando o DIA ANTERIOR.
+   * O ALTIORA GAMES foi cadastrado como 31/10 e ficou 30/10 no banco.
+   *
+   * A asserção que importa é a do `to_char` direto no banco: ela não passa
+   * pela conversão para Date do driver, então mede o que está REALMENTE
+   * gravado na coluna, e não o que a serialização faz parecer.
+   *
+   * Os 175 testes que existiam antes mandavam datas válidas e nenhum
+   * conferia a volta — foi essa lacuna, não a falta de testes, que deixou o
+   * bug passar.
+   */
+  test('POST / grava a data exatamente como enviada, sem deslocar um dia', async () => {
+    const res = await request(app)
+      .post('/api/championships')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Jest Data Exata', date: '2026-10-31', location: 'Box Jest' });
+
+    expect(res.status).toBe(201);
+    extras.push(res.body.data.id);
+
+    const noBanco = await pool.query(
+      "SELECT to_char(date, 'YYYY-MM-DD') AS dia FROM championships WHERE id = $1",
+      [res.body.data.id]
+    );
+    expect(noBanco.rows[0].dia).toBe('2026-10-31');
+
+    // E o que a API devolve tem que começar pelo mesmo dia: é desses 10
+    // primeiros caracteres que o front monta "31/10/2026" (lib/format.ts).
+    expect(String(res.body.data.date).slice(0, 10)).toBe('2026-10-31');
+  });
+
+  test('PUT /:id também não desloca a data', async () => {
+    const criado = await request(app)
+      .post('/api/championships')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Jest Data PUT', date: '2026-10-01', location: 'Box Jest' });
+
+    expect(criado.status).toBe(201);
+    extras.push(criado.body.data.id);
+
+    const res = await request(app)
+      .put(`/api/championships/${criado.body.data.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ date: '2026-10-31' });
+
+    expect(res.status).toBe(200);
+
+    const noBanco = await pool.query(
+      "SELECT to_char(date, 'YYYY-MM-DD') AS dia FROM championships WHERE id = $1",
+      [criado.body.data.id]
+    );
+    expect(noBanco.rows[0].dia).toBe('2026-10-31');
+  });
+
+  test('POST / rejeita timestamp completo em date (400) em vez de deslocar', async () => {
+    const res = await request(app)
+      .post('/api/championships')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Jest Timestamp',
+        date: '2026-10-31T00:00:00.000Z',
+        location: 'Box Jest',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  test('POST / rejeita data inexistente no calendário (400), não deixa estourar no Postgres', async () => {
+    const res = await request(app)
+      .post('/api/championships')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Jest 31 de Novembro', date: '2026-11-31', location: 'Box Jest' });
 
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('VALIDATION_ERROR');

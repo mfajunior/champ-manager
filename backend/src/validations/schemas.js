@@ -23,9 +23,60 @@ const authLogin = Joi.object({
   password: Joi.string().required(),
 });
 
+/**
+ * DATA DE CAMPEONATO É DATA DE CALENDÁRIO, NÃO INSTANTE
+ *
+ * `championships.date` é DATE no Postgres: "31 de outubro", sem hora e sem
+ * fuso. `Joi.date().iso()` parecia a validação certa, mas ela CONVERTE a
+ * string num objeto Date do JavaScript — e aí a data deixa de ser calendário
+ * e passa a ser instante. O resto do caminho então desloca um dia:
+ *
+ *   front manda      "2026-10-31"              (<input type="date">)
+ *   Joi devolve      2026-10-31T00:00:00.000Z  (meia-noite UTC)
+ *   pg serializa     2026-10-30T21:00:00-03:00 (fuso do processo Node)
+ *   Postgres grava   2026-10-30                (trunca para DATE)
+ *
+ * Medido com TZ=America/Sao_Paulo, que é o fuso que o server.js fixa em
+ * produção. Ou seja: em qualquer fuso atrás de UTC — o Brasil inteiro — a
+ * data gravada é um dia antes da que o organizador digitou. Foi o que
+ * aconteceu com o ALTIORA GAMES: cadastrado 31/10, gravado 30/10.
+ *
+ * A correção é não deixar o Joi construir um Date. Validando como string no
+ * formato YYYY-MM-DD, o valor chega ao Postgres como literal de data, que não
+ * tem fuso para interpretar errado. É a mesma decisão que lib/format.ts tomou
+ * do outro lado (nunca construir Date a partir de uma data de calendário) e
+ * que a migration 009 tomou no banco.
+ *
+ * Efeito colateral intencional: um timestamp completo passa a ser REJEITADO
+ * em vez de silenciosamente deslocado. Falhar na porta de entrada é melhor do
+ * que gravar o dia errado de um evento.
+ */
+const dataDeCalendario = Joi.string()
+  .trim()
+  .pattern(/^\d{4}-\d{2}-\d{2}$/)
+  // O pattern garante o FORMATO, não a existência do dia: "2026-13-45" casa
+  // com \d{4}-\d{2}-\d{2} e só estouraria no Postgres, virando 500 em vez do
+  // 400 que o cliente merecia. O round-trip por Date.UTC resolve isso — e usa
+  // Date apenas como calendário interno, sem nunca devolver o objeto adiante,
+  // que é a parte que causava o deslocamento de um dia.
+  .custom((valor, helpers) => {
+    const [ano, mes, dia] = valor.split('-').map(Number);
+    const reconstruida = new Date(Date.UTC(ano, mes - 1, dia));
+    const existe =
+      reconstruida.getUTCFullYear() === ano &&
+      reconstruida.getUTCMonth() === mes - 1 &&
+      reconstruida.getUTCDate() === dia;
+
+    return existe ? valor : helpers.error('any.invalid');
+  })
+  .messages({
+    'string.pattern.base': 'date deve estar no formato YYYY-MM-DD',
+    'any.invalid': 'date nao e uma data existente no calendario',
+  });
+
 const championshipCreate = Joi.object({
   name: Joi.string().trim().min(2).required(),
-  date: Joi.date().iso().required(),
+  date: dataDeCalendario.required(),
   location: Joi.string().trim().min(2).required(),
 });
 
@@ -37,7 +88,7 @@ const championshipCreate = Joi.object({
 // os dois evita ida e volta de formatação só pra validar.
 const championshipUpdate = Joi.object({
   name: Joi.string().trim().min(2),
-  date: Joi.date().iso(),
+  date: dataDeCalendario,
   location: Joi.string().trim().min(2),
   is_active: Joi.boolean(),
   lanes_per_heat: Joi.number().integer().positive(),
