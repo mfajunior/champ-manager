@@ -1,0 +1,18 @@
+{
+  "nome": "Nome do Campeonato",
+  "data": "2026-12-31",
+  "local": "Nome do box",
+  "categorias": {
+    "Iniciante Feminino": [
+      "Equipe A",
+      "Equipe B"
+    ],
+    "Scale Masculino": [
+      "Equipe C"
+    ],
+    "RX Misto": [
+      "Equipe D",
+      "Equipe E"
+    ]
+  }
+}
