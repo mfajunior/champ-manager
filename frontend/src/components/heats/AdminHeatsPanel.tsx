@@ -5,10 +5,10 @@ import { ErrorBanner } from '../ui/ErrorBanner';
 import { Modal } from '../ui/Modal';
 import { Spinner } from '../ui/Spinner';
 import { WarningBanner } from '../ui/WarningBanner';
-import { useHeats } from '../../hooks/useHeats';
+import { useHeats, useMoveLane, useSwapLanes } from '../../hooks/useHeats';
 import { useEligibleTeams } from '../../hooks/useWorkoutCut';
 import { getErrorMessage } from '../../lib/errors';
-import type { Championship, Workout } from '../../types';
+import type { Championship, HeatLane, Workout } from '../../types';
 
 /**
  * Conteúdo da aba "Baterias" do admin (ChampionshipDetailPage). Antes ficava
@@ -31,6 +31,33 @@ export function AdminHeatsPanel({
 }) {
   const [workoutId, setWorkoutId] = useState<number | null>(workouts[0]?.id ?? null);
   const [isGeneratingHeats, setIsGeneratingHeats] = useState(false);
+
+  // Remanejamento manual. É um MODO, e não botões sempre visíveis, porque esta
+  // tela é operada durante a prova para lançar resultado — botão de mover
+  // equipe ao lado do de lançar é convite a clicar errado com o cronômetro
+  // correndo.
+  const [remanejando, setRemanejando] = useState(false);
+  const [selecionada, setSelecionada] = useState<HeatLane | null>(null);
+  const [erroRemanejo, setErroRemanejo] = useState<string | null>(null);
+
+  const trocar = useSwapLanes(workoutId ?? NaN);
+  const mover = useMoveLane(workoutId ?? NaN);
+
+  const sairDoRemanejo = () => {
+    setRemanejando(false);
+    setSelecionada(null);
+    setErroRemanejo(null);
+  };
+
+  const comErro = async (acao: () => Promise<unknown>) => {
+    setErroRemanejo(null);
+    try {
+      await acao();
+      setSelecionada(null);
+    } catch (err) {
+      setErroRemanejo(getErrorMessage(err));
+    }
+  };
 
   const heats = useHeats(workoutId ?? NaN);
   // Só para saber se a escalação montada ainda bate com a classificação.
@@ -59,12 +86,20 @@ export function AdminHeatsPanel({
         </div>
 
         {selectedWorkout && (
-          <button
-            onClick={() => setIsGeneratingHeats(true)}
-            className="text-xs font-bold uppercase tracking-wider text-brand hover:opacity-70"
-          >
-            Configurar baterias
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => (remanejando ? sairDoRemanejo() : setRemanejando(true))}
+              className="text-xs font-bold uppercase tracking-wider text-secondary hover:opacity-70"
+            >
+              {remanejando ? 'Sair do remanejamento' : 'Remanejar raias'}
+            </button>
+            <button
+              onClick={() => setIsGeneratingHeats(true)}
+              className="text-xs font-bold uppercase tracking-wider text-brand hover:opacity-70"
+            >
+              Configurar baterias
+            </button>
+          </div>
         )}
       </div>
 
@@ -80,6 +115,23 @@ export function AdminHeatsPanel({
 
       {heats.isLoading && <Spinner label="Carregando baterias..." />}
       {heats.isError && <ErrorBanner message={getErrorMessage(heats.error)} />}
+      {remanejando && (
+        <div className="mb-4 border border-secondary bg-muted px-4 py-3">
+          <p className="text-sm font-semibold text-foreground">
+            {selecionada
+              ? `"${selecionada.team_name}" selecionada — agora clique no destino.`
+              : 'Clique em "Mover esta" na equipe que você quer tirar do lugar.'}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Destino ocupado troca as duas de lugar; raia livre move. O resultado já
+            lançado vai junto com a equipe, e os horários são recalculados.
+          </p>
+          {erroRemanejo && (
+            <p className="mt-2 text-xs font-semibold text-destructive">{erroRemanejo}</p>
+          )}
+        </div>
+      )}
+
       {heats.data && selectedWorkout && (
         <HeatsList
           heats={heats.data}
@@ -88,6 +140,32 @@ export function AdminHeatsPanel({
           scoringType2={selectedWorkout.scoring_type_2}
           hasTiebreak={selectedWorkout.has_tiebreak}
           breakAfterSeconds={selectedWorkout.break_after_seconds}
+          remanejar={
+            remanejando
+              ? {
+                  lanesPerHeat: championship.lanes_per_heat ?? 0,
+                  selecionada,
+                  onSelecionar: setSelecionada,
+                  onTrocar: (destino) =>
+                    selecionada &&
+                    comErro(() =>
+                      trocar.mutateAsync({
+                        heat_team_id_a: selecionada.heat_team_id,
+                        heat_team_id_b: destino.heat_team_id,
+                      })
+                    ),
+                  onMover: (heatId, laneNumber) =>
+                    selecionada &&
+                    comErro(() =>
+                      mover.mutateAsync({
+                        heatTeamId: selecionada.heat_team_id,
+                        heat_id: heatId,
+                        lane_number: laneNumber,
+                      })
+                    ),
+                }
+              : undefined
+          }
         />
       )}
 

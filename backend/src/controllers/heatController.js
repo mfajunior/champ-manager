@@ -84,6 +84,273 @@ exports.chunkIntoHeats = chunkIntoHeats;
  * saber quando uma bateria começa sem saber quando a anterior termina.
  */
 
+/**
+ * Recalcula a duração das baterias afetadas por um remanejamento.
+ *
+ * A duração de uma bateria é o MAIOR time cap entre as categorias presentes
+ * nela — é isso que faz uma bateria mista durar o que a categoria mais lenta
+ * precisa. Mover uma equipe entre baterias pode, portanto, mudar a duração das
+ * duas: tirar a única equipe de RX de uma bateria encurta ela, e colocá-la na
+ * outra alonga aquela.
+ *
+ * Se qualquer categoria presente não tem time cap cadastrado para a prova, a
+ * duração vira NULL — o mesmo critério do gerador. Sem saber quanto a bateria
+ * dura, não dá para saber quando a próxima começa.
+ */
+const recalcularDuracoes = async (client, heatIds) => {
+  if (heatIds.length === 0) return;
+  await client.query(
+    `UPDATE heats h
+        SET duration_seconds = sub.duracao
+       FROM (
+         SELECT ht.heat_id,
+                CASE WHEN bool_and(wv.time_cap_seconds IS NOT NULL)
+                     THEN MAX(wv.time_cap_seconds) END AS duracao
+           FROM heat_teams ht
+           JOIN teams t ON t.id = ht.team_id
+           JOIN heats h2 ON h2.id = ht.heat_id
+           LEFT JOIN workout_variants wv
+                  ON wv.workout_id = h2.workout_id
+                 AND wv.category_id = t.category_id
+          WHERE ht.heat_id = ANY($1::int[])
+          GROUP BY ht.heat_id
+       ) sub
+      WHERE h.id = sub.heat_id`,
+    [heatIds]
+  );
+};
+
+/** Carrega a raia com o contexto que as duas operações precisam validar. */
+const carregarRaia = (client, heatTeamId) =>
+  client
+    .query(
+      `SELECT ht.id, ht.heat_id, ht.team_id, ht.lane_number,
+              t.name AS team_name,
+              h.workout_id, h.heat_number,
+              w.championship_id,
+              c.lanes_per_heat
+         FROM heat_teams ht
+         JOIN teams t ON t.id = ht.team_id
+         JOIN heats h ON h.id = ht.heat_id
+         JOIN workouts w ON w.id = h.workout_id
+         JOIN championships c ON c.id = w.championship_id
+        WHERE ht.id = $1`,
+      [heatTeamId]
+    )
+    .then((r) => r.rows[0] || null);
+
+// POST /api/heats/lanes/swap  (protegido)
+// body: { heat_team_id_a, heat_team_id_b }
+//
+// Troca duas equipes de lugar. É a operação segura por construção: o tamanho
+// de cada bateria não muda, nenhuma raia fica duplicada no fim, e nenhuma
+// equipe fica sem lugar. Qualquer rearranjo que preserve os tamanhos das
+// baterias é alcançável por uma sequência de trocas.
+//
+// RESULTADO JÁ LANÇADO NÃO ATRAPALHA. results aponta para heat_team_id, e a
+// bateria é uma coluna DENTRO dessa linha — trocar o heat_id leva o resultado
+// junto, sem nada para migrar. E a colocação é por prova, não por bateria,
+// então ela não muda: a equipe continua tendo feito o mesmo tempo.
+exports.swapLanes = async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { heat_team_id_a: idA, heat_team_id_b: idB } = req.body;
+
+    if (!idA || !idB) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'heat_team_id_a e heat_team_id_b são obrigatórios' },
+      });
+    }
+    if (Number(idA) === Number(idB)) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'As duas raias precisam ser diferentes' },
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const a = await carregarRaia(client, idA);
+    const b = await carregarRaia(client, idB);
+
+    if (!a || !b) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Raia não encontrada' },
+      });
+    }
+
+    // Trocar equipes entre PROVAS diferentes não significa nada: cada prova
+    // tem as próprias baterias, e a equipe já está escalada nas duas.
+    if (a.workout_id !== b.workout_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'As duas raias precisam ser da mesma prova',
+        },
+      });
+    }
+
+    // Sem isto, trocar duas equipes que já estão na mesma bateria colidiria
+    // com UNIQUE(heat_id, team_id) — ou, pior, passaria e não faria nada.
+    if (a.heat_id !== b.heat_id) {
+      const jaEstao = await client.query(
+        `SELECT 1 FROM heat_teams
+          WHERE (heat_id = $1 AND team_id = $2) OR (heat_id = $3 AND team_id = $4)`,
+        [b.heat_id, a.team_id, a.heat_id, b.team_id]
+      );
+      if (jaEstao.rowCount > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: {
+            code: 'CONFLICT',
+            message: 'Uma das equipes já está escalada na bateria de destino',
+          },
+        });
+      }
+    }
+
+    // A troca passa por um estado inválido no meio — ao mover a primeira, a
+    // segunda ainda ocupa o destino. Adiar a checagem para o COMMIT é o que
+    // torna isso possível sem valores temporários (ver migration 016).
+    await client.query('SET CONSTRAINTS uq_heat_teams_lane DEFERRED');
+
+    await client.query('UPDATE heat_teams SET heat_id = $1, lane_number = $2 WHERE id = $3', [
+      b.heat_id,
+      b.lane_number,
+      a.id,
+    ]);
+    await client.query('UPDATE heat_teams SET heat_id = $1, lane_number = $2 WHERE id = $3', [
+      a.heat_id,
+      a.lane_number,
+      b.id,
+    ]);
+
+    const afetadas = [...new Set([a.heat_id, b.heat_id])];
+    await recalcularDuracoes(client, afetadas);
+    await rescheduleChampionship(client, a.championship_id);
+
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      data: null,
+      meta: {
+        message:
+          `"${a.team_name}" e "${b.team_name}" trocaram de lugar ` +
+          `(baterias ${a.heat_number} e ${b.heat_number}).`,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+};
+
+// PUT /api/heats/lanes/:heat_team_id  (protegido)
+// body: { heat_id, lane_number }
+//
+// Move uma equipe para uma raia LIVRE de outra bateria. A troca não cobre este
+// caso: com a distribuição equilibrada as baterias têm tamanhos diferentes
+// (4 e 3), e tirar uma equipe da cheia para a que tem raia sobrando é
+// exatamente o ajuste que o organizador faz no dia.
+exports.moveLane = async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const { heat_team_id: heatTeamId } = req.params;
+    const { heat_id: destinoHeatId, lane_number: destinoLane } = req.body;
+
+    if (!destinoHeatId || !destinoLane) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'heat_id e lane_number são obrigatórios' },
+      });
+    }
+
+    await client.query('BEGIN');
+
+    const raia = await carregarRaia(client, heatTeamId);
+    if (!raia) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Raia não encontrada' } });
+    }
+
+    const destino = await client.query(
+      'SELECT id, workout_id, heat_number FROM heats WHERE id = $1',
+      [destinoHeatId]
+    );
+    if (destino.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Bateria de destino não encontrada' } });
+    }
+    if (destino.rows[0].workout_id !== raia.workout_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'A bateria de destino precisa ser da mesma prova' },
+      });
+    }
+
+    if (destinoLane < 1 || destinoLane > raia.lanes_per_heat) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: `O box tem ${raia.lanes_per_heat} raias; lane_number precisa estar entre 1 e ${raia.lanes_per_heat}`,
+        },
+      });
+    }
+
+    const ocupada = await client.query(
+      'SELECT t.name FROM heat_teams ht JOIN teams t ON t.id = ht.team_id WHERE ht.heat_id = $1 AND ht.lane_number = $2 AND ht.id <> $3',
+      [destinoHeatId, destinoLane, raia.id]
+    );
+    if (ocupada.rowCount > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: {
+          code: 'CONFLICT',
+          message: `A raia ${destinoLane} já é de "${ocupada.rows[0].name}". Use a troca para inverter as duas.`,
+        },
+      });
+    }
+
+    const jaEsta = await client.query(
+      'SELECT 1 FROM heat_teams WHERE heat_id = $1 AND team_id = $2 AND id <> $3',
+      [destinoHeatId, raia.team_id, raia.id]
+    );
+    if (jaEsta.rowCount > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: { code: 'CONFLICT', message: 'A equipe já está escalada nessa bateria' },
+      });
+    }
+
+    await client.query('UPDATE heat_teams SET heat_id = $1, lane_number = $2 WHERE id = $3', [
+      destinoHeatId,
+      destinoLane,
+      raia.id,
+    ]);
+
+    const afetadas = [...new Set([raia.heat_id, Number(destinoHeatId)])];
+    await recalcularDuracoes(client, afetadas);
+    await rescheduleChampionship(client, raia.championship_id);
+
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      data: null,
+      meta: {
+        message: `"${raia.team_name}" foi para a bateria ${destino.rows[0].heat_number}, raia ${destinoLane}.`,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+};
+
 // POST /api/workouts/:workout_id/heats  (protegido)
 // body: { force? }
 // Raias, transição e horário de início não são mais parâmetros da chamada —

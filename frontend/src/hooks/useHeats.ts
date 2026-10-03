@@ -35,3 +35,43 @@ export function useGenerateHeats(workoutId: number) {
     },
   });
 }
+
+/**
+ * Remanejamento manual de raias (migration 016).
+ *
+ * Duas operações em vez de uma porque são situações diferentes: TROCAR quando
+ * o destino está ocupado, MOVER quando está livre. Quem decide qual chamar é
+ * a tela, pelo que ela já sabe — o organizador clica num lugar só.
+ *
+ * Invalida a prova inteira, não a bateria: remanejar muda a duração das
+ * baterias afetadas (ela sai do maior time cap entre as categorias presentes)
+ * e o backend reagenda o campeonato a partir dali, então o horário de TODAS
+ * as baterias seguintes pode ter mudado.
+ */
+export function useSwapLanes(workoutId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { heat_team_id_a: number; heat_team_id_b: number }) =>
+      api.post('/api/heats/lanes/swap', input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: heatKeys.byWorkout(workoutId) });
+    },
+  });
+}
+
+export function useMoveLane(workoutId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      heatTeamId,
+      ...input
+    }: {
+      heatTeamId: number;
+      heat_id: number;
+      lane_number: number;
+    }) => api.put(`/api/heats/lanes/${heatTeamId}`, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: heatKeys.byWorkout(workoutId) });
+    },
+  });
+}

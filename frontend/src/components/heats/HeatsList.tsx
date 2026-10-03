@@ -2,8 +2,9 @@ import { Fragment } from 'react';
 import { HeatBreakBanner } from './HeatBreakBanner';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { LaneRow } from './LaneRow';
+import { LaneRemanejarRow, RaiaLivreRow } from './RemanejarRows';
 import { formatTime } from '../../lib/format';
-import type { Heat, ScoringType } from '../../types';
+import type { Heat, HeatLane, ScoringType } from '../../types';
 
 /**
  * Uma bateria não pertence mais a uma categoria só (migration 005) — pode
@@ -16,6 +17,7 @@ export function HeatsList({
   heats,
   workoutId,
   scoringType,
+  remanejar,
   scoringType2 = null,
   hasTiebreak = false,
   breakAfterSeconds = null,
@@ -23,6 +25,18 @@ export function HeatsList({
   heats: Heat[];
   workoutId: number;
   scoringType: ScoringType;
+  /**
+   * Estado do remanejamento manual, quando ligado. Vive no AdminHeatsPanel
+   * porque a seleção atravessa baterias — a equipe é escolhida numa e o
+   * destino é clicado em outra.
+   */
+  remanejar?: {
+    lanesPerHeat: number;
+    selecionada: HeatLane | null;
+    onSelecionar: (lane: HeatLane | null) => void;
+    onTrocar: (destino: HeatLane) => void;
+    onMover: (heatId: number, laneNumber: number) => void;
+  };
   /** Segunda pontuação da prova (migration 014); null = pontuação única. */
   scoringType2?: ScoringType | null;
   hasTiebreak?: boolean;
@@ -84,16 +98,52 @@ export function HeatsList({
                 </tr>
               </thead>
               <tbody>
-                {heat.teams.map((lane) => (
-                  <LaneRow
-                    key={lane.heat_team_id}
-                    lane={lane}
-                    workoutId={workoutId}
-                    scoringType={scoringType}
-                    scoringType2={scoringType2}
-                    hasTiebreak={hasTiebreak}
-                  />
-                ))}
+                {remanejar
+                  ? (() => {
+                      const ocupadas = new Set(heat.teams.map((t) => t.lane_number));
+                      const livres = Array.from(
+                        { length: remanejar.lanesPerHeat },
+                        (_, i) => i + 1
+                      ).filter((n) => !ocupadas.has(n));
+                      const sel = remanejar.selecionada;
+
+                      return (
+                        <>
+                          {heat.teams.map((lane) => (
+                            <LaneRemanejarRow
+                              key={lane.heat_team_id}
+                              lane={lane}
+                              selecionada={sel?.heat_team_id === lane.heat_team_id}
+                              ocupada={!!sel && sel.heat_team_id !== lane.heat_team_id}
+                              onSelecionar={() =>
+                                remanejar.onSelecionar(
+                                  sel?.heat_team_id === lane.heat_team_id ? null : lane
+                                )
+                              }
+                              onTrocarCom={() => remanejar.onTrocar(lane)}
+                            />
+                          ))}
+                          {livres.map((n) => (
+                            <RaiaLivreRow
+                              key={`livre-${heat.id}-${n}`}
+                              laneNumber={n}
+                              habilitada={!!sel}
+                              onMoverPara={() => remanejar.onMover(heat.id, n)}
+                            />
+                          ))}
+                        </>
+                      );
+                    })()
+                  : heat.teams.map((lane) => (
+                      <LaneRow
+                        key={lane.heat_team_id}
+                        lane={lane}
+                        workoutId={workoutId}
+                        scoringType={scoringType}
+                        scoringType2={scoringType2}
+                        hasTiebreak={hasTiebreak}
+                      />
+                    ))}
               </tbody>
             </table>
           </div>

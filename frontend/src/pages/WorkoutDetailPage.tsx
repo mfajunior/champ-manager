@@ -27,6 +27,9 @@ export function WorkoutDetailPage() {
   const workoutId = Number(workoutIdParam);
 
   const [scoringWarning, setScoringWarning] = useState<string | null>(null);
+  const [editandoNome, setEditandoNome] = useState(false);
+  const [nomeRascunho, setNomeRascunho] = useState('');
+  const [erroNome, setErroNome] = useState<string | null>(null);
 
   const championship = useChampionship(championshipId);
   const workout = useWorkout(workoutId);
@@ -60,11 +63,74 @@ export function WorkoutDetailPage() {
         ← {championship.data.name}
       </Link>
 
-      <div className="mt-2 flex items-center justify-between">
-        <h1 className="text-3xl">
-          Prova {workout.data.workout_number} — {workout.data.name}
-        </h1>
+      {/* O nome da prova é editável no lugar onde ele é lido, e não num
+          formulário separado: o organizador costuma decidir o nome depois de
+          escrever as variantes ("Prova 2" vira "Escolha a ordem"), e um campo
+          escondido numa tela de edição seria procurado e não achado.
+          O número continua fixo — ele define a ORDEM do cronograma, e trocar
+          isso por engano reagenda o dia inteiro. */}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        {editandoNome ? (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const novo = nomeRascunho.trim();
+              if (!novo || novo === workout.data?.name) {
+                setEditandoNome(false);
+                return;
+              }
+              setErroNome(null);
+              try {
+                await updateWorkout.mutateAsync({ name: novo });
+                setEditandoNome(false);
+              } catch (err) {
+                setErroNome(getErrorMessage(err));
+              }
+            }}
+            className="flex flex-wrap items-center gap-2"
+          >
+            <span className="text-3xl">Prova {workout.data.workout_number} —</span>
+            <input
+              autoFocus
+              value={nomeRascunho}
+              onChange={(e) => setNomeRascunho(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setEditandoNome(false)}
+              className="border border-border px-2 py-1 text-2xl"
+            />
+            <button
+              type="submit"
+              disabled={updateWorkout.isPending}
+              className="bg-brand px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-brand-foreground"
+            >
+              {updateWorkout.isPending ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditandoNome(false)}
+              className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+            >
+              Cancelar
+            </button>
+          </form>
+        ) : (
+          <>
+            <h1 className="text-3xl">
+              Prova {workout.data.workout_number} — {workout.data.name}
+            </h1>
+            <button
+              onClick={() => {
+                setNomeRascunho(workout.data?.name ?? '');
+                setErroNome(null);
+                setEditandoNome(true);
+              }}
+              className="text-xs font-bold uppercase tracking-wider text-secondary hover:opacity-70"
+            >
+              Renomear
+            </button>
+          </>
+        )}
       </div>
+      {erroNome && <p className="mt-1 text-xs font-semibold text-destructive">{erroNome}</p>}
 
       <div className="mt-3 flex items-center gap-3">
         <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
