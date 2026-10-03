@@ -96,6 +96,19 @@ async function main() {
   // equipe na categoria errada em silêncio.
   const porNome = new Map(categorias.map((c) => [c.name.toLowerCase().trim(), c]));
 
+  if (evento.agenda) {
+    passo('Configurando a agenda');
+    await api('PUT', `/api/championships/${championshipId}`, {
+      lanes_per_heat: evento.agenda.raias,
+      transition_seconds: evento.agenda.transicao_segundos,
+      start_time: evento.agenda.inicio,
+    });
+    ok(
+      `${evento.agenda.raias} raias, ${evento.agenda.transicao_segundos}s de transição, ` +
+        `início ${evento.agenda.inicio}`
+    );
+  }
+
   passo('Cadastrando equipes');
   let total = 0;
   for (const [nomeCategoria, equipes] of Object.entries(evento.categorias)) {
@@ -118,8 +131,55 @@ async function main() {
     ok(`${categoria.name}: ${equipes.length} equipe(s)`);
   }
 
-  console.log(`\n✓ ${total} equipes em ${Object.keys(evento.categorias).length} categorias.`);
-  console.log(`  Campeonato #${championshipId}. Provas, agenda e baterias ficam para a tela.`);
+  let totalProvas = 0;
+  let totalVariantes = 0;
+
+  if (evento.provas?.length) {
+    passo('Cadastrando provas e variantes');
+    for (const prova of evento.provas) {
+      // eslint-disable-next-line no-await-in-loop
+      const criada = await api('POST', '/api/workouts', {
+        championship_id: championshipId,
+        workout_number: prova.numero,
+        name: prova.nome,
+        scoring_type: prova.pontuacao,
+        ...(prova.pontuacao_2 ? { scoring_type_2: prova.pontuacao_2 } : {}),
+        ...(prova.desempate ? { has_tiebreak: true } : {}),
+      });
+      const workoutId = criada.data.id;
+      totalProvas += 1;
+
+      // A variante é o que cada categoria de fato executa: mesma prova no
+      // cronograma, cargas e movimentos diferentes. O time_cap também é por
+      // categoria, e é dele que sai a duração da bateria — o sistema usa o
+      // MAIOR cap entre as categorias presentes na mesma bateria.
+      let variantes = 0;
+      for (const [nomeCategoria, variante] of Object.entries(prova.variantes || {})) {
+        const categoria = porNome.get(nomeCategoria.toLowerCase().trim());
+        if (!categoria) {
+          throw new Error(
+            `Prova ${prova.numero}: categoria "${nomeCategoria}" não existe.\n` +
+              `  Disponíveis: ${categorias.map((c) => c.name).join(', ')}`
+          );
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await api('PUT', `/api/workouts/${workoutId}/variants/${categoria.id}`, {
+          description: variante.descricao,
+          time_cap_seconds: variante.time_cap_segundos,
+        });
+        variantes += 1;
+        totalVariantes += 1;
+      }
+
+      const dupla = prova.pontuacao_2 ? ` + ${prova.pontuacao_2}` : '';
+      ok(`Prova ${prova.numero} "${prova.nome}" (${prova.pontuacao}${dupla}): ${variantes} variantes`);
+    }
+  }
+
+  console.log(`\n✓ ${total} equipes, ${totalProvas} provas, ${totalVariantes} variantes.`);
+  console.log(`  Campeonato #${championshipId}.`);
+  console.log('  Falta gerar as baterias — isso fica na tela, porque depende de');
+  console.log('  conferir a ordem e o horário antes de valer.');
 }
 
 main().catch((erro) => {
