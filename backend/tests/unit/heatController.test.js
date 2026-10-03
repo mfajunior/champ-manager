@@ -2,13 +2,16 @@ const { chunkIntoHeats } = require('../../src/controllers/heatController');
 const { computeOffsets } = require('../../src/models/schedule');
 
 /**
- * chunkIntoHeats substitui o antigo distributeTeams (round-robin balanceado
- * DENTRO de uma categoria). Com baterias mistas isso deixou de fazer sentido:
- * a lista já chega pronta, na ordem final de disputa (nível -> gênero,
- * achatada equipe-a-equipe pelo controller), e a única responsabilidade
- * daqui é fatiar em blocos de até `lanesPerHeat` — sem reordenar nada.
+ * chunkIntoHeats recebe a lista já na ordem final de disputa (nível -> gênero,
+ * achatada equipe-a-equipe pelo controller) e decide onde cortar. Nunca
+ * reordena.
+ *
+ * DISTRIBUI em vez de fatiar. A versão anterior cortava de lanesPerHeat em
+ * lanesPerHeat, o que num campeonato de 29 equipes com 4 raias produzia sete
+ * baterias de 4 e uma de UMA — uma dupla sozinha no ginásio. O número de
+ * baterias é o mesmo; o que muda é o espalhamento.
  */
-describe('chunkIntoHeats (fatia em baterias, sem reordenar)', () => {
+describe('chunkIntoHeats (distribui em baterias, sem reordenar)', () => {
   test('divide em blocos completos quando o total é múltiplo das raias', () => {
     const assignments = [1, 2, 3, 4, 5, 6].map((id) => ({ id }));
     const chunks = chunkIntoHeats(assignments, 3);
@@ -47,6 +50,41 @@ describe('chunkIntoHeats (fatia em baterias, sem reordenar)', () => {
 
   test('1 equipe em 1 bateria', () => {
     expect(chunkIntoHeats([{ id: 1 }], 4)).toEqual([[{ id: 1 }]]);
+  });
+
+  // O caso que motivou a mudança: o campeonato real tem 29 equipes e o box
+  // tem 4 raias. Fatiando dava 4,4,4,4,4,4,4,1.
+  test('29 equipes em 4 raias não deixam ninguém sozinho', () => {
+    const assignments = Array.from({ length: 29 }, (_, i) => ({ id: i + 1 }));
+    const chunks = chunkIntoHeats(assignments, 4);
+
+    expect(chunks.map((c) => c.length)).toEqual([4, 4, 4, 4, 4, 3, 3, 3]);
+    expect(chunks).toHaveLength(Math.ceil(29 / 4));
+  });
+
+  // A regra que o projeto documentava desde o início e que se perdeu quando o
+  // distributeTeams foi substituído: equilibrar, não encher até o limite.
+  test('6 equipes em 4 raias viram 3+3, não 4+2', () => {
+    const assignments = Array.from({ length: 6 }, (_, i) => ({ id: i + 1 }));
+    expect(chunkIntoHeats(assignments, 4).map((c) => c.length)).toEqual([3, 3]);
+  });
+
+  test('nunca estoura as raias, nem deixa bateria vazia, em nenhuma proporção', () => {
+    for (let total = 1; total <= 80; total += 1) {
+      for (let raias = 2; raias <= 10; raias += 1) {
+        const assignments = Array.from({ length: total }, (_, i) => ({ id: i + 1 }));
+        const chunks = chunkIntoHeats(assignments, raias);
+        const tamanhos = chunks.map((c) => c.length);
+
+        expect(chunks).toHaveLength(Math.ceil(total / raias));
+        expect(Math.max(...tamanhos)).toBeLessThanOrEqual(raias);
+        expect(Math.min(...tamanhos)).toBeGreaterThan(0);
+        // Equilíbrio: a maior e a menor bateria diferem em no máximo uma equipe.
+        expect(Math.max(...tamanhos) - Math.min(...tamanhos)).toBeLessThanOrEqual(1);
+        // Nenhuma equipe perdida, duplicada ou fora de ordem.
+        expect(chunks.flat().map((a) => a.id)).toEqual(assignments.map((a) => a.id));
+      }
+    }
   });
 });
 

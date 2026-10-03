@@ -25,17 +25,42 @@ const categorySortKey = (category) =>
  * de até `lanesPerHeat` raias. Pura e sem banco de propósito — dá pra testar
  * a lógica de preenchimento sem subir Postgres (tests/unit/heatController.test.js).
  *
- * Substitui o antigo `distributeTeams` (round-robin balanceado DENTRO de uma
- * categoria só). Esse balanceamento não faz mais sentido com baterias mistas:
- * o que sobra de uma categoria é completado pela próxima da sequência, então
- * "bateria cheia até a última" deixou de ser um problema a resolver — só a
- * bateria final do campeonato inteiro (a última categoria, sem mais ninguém
- * pra completar) pode sobrar incompleta, e isso é inevitável, não um bug.
+ * DISTRIBUI, NÃO FATIA
+ *
+ * A versão anterior cortava a lista de `lanesPerHeat` em `lanesPerHeat` e
+ * documentava a sobra como inevitável. Não é: 29 equipes em 4 raias fatiadas
+ * assim dão sete baterias de 4 e uma de UMA — uma dupla sozinha no ginásio,
+ * com três raias vazias ao lado, enquanto todas as outras competiram em
+ * bateria cheia.
+ *
+ * O número de baterias é o mesmo nos dois casos (teto de total/raias); o que
+ * muda é como as equipes se espalham por ele. Com 29 e 4 raias são 8 baterias
+ * de qualquer jeito, e distribuir dá 5 de 4 e 3 de 3 — ninguém sozinho.
+ *
+ * Isso não é só estética. Em CrossFit o tamanho da bateria afeta o resultado:
+ * atleta puxa ritmo de quem está do lado. Bateria de 1 contra baterias de 4 é
+ * desvantagem competitiva, e cai sempre na última equipe da última categoria,
+ * que não escolheu estar ali.
+ *
+ * A ORDEM É PRESERVADA. A lista chega pronta (nível -> gênero, achatada
+ * equipe-a-equipe) e esta função nunca reordena — só decide onde cortar.
  */
 const chunkIntoHeats = (assignments, lanesPerHeat) => {
+  if (assignments.length === 0) return [];
+
+  const totalBaterias = Math.ceil(assignments.length / lanesPerHeat);
+  const base = Math.floor(assignments.length / totalBaterias);
+  // As primeiras `resto` baterias levam uma equipe a mais. base + 1 nunca
+  // passa de lanesPerHeat: se passasse, base seria igual a lanesPerHeat, o que
+  // só acontece quando a divisão é exata — e aí resto é zero.
+  const resto = assignments.length % totalBaterias;
+
   const chunks = [];
-  for (let i = 0; i < assignments.length; i += lanesPerHeat) {
-    chunks.push(assignments.slice(i, i + lanesPerHeat));
+  let i = 0;
+  for (let b = 0; b < totalBaterias; b += 1) {
+    const tamanho = base + (b < resto ? 1 : 0);
+    chunks.push(assignments.slice(i, i + tamanho));
+    i += tamanho;
   }
   return chunks;
 };
