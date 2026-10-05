@@ -6,6 +6,7 @@ const heatController = require('../controllers/heatController');
 const { authMiddleware } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const schemas = require('../validations/schemas');
+const { cacheDeLeitura } = require('../middleware/cacheLeitura');
 
 /**
  * Tudo que é filho de uma prova mora aqui — variantes e baterias incluídas.
@@ -21,7 +22,10 @@ const schemas = require('../validations/schemas');
 router.post('/:workout_id/heats', authMiddleware, heatController.generate);
 
 // GET /api/workouts/:workout_id/heats - Listar baterias (público)
-router.get('/:workout_id/heats', heatController.getByWorkout);
+// 10 s: esta resposta traz as raias COM o resultado de cada uma embutido
+// (place, raw_value, place_2), então ela muda a cada lançamento — 87 vezes no
+// dia do evento. Cacheável só porque a invalidação por escrita cobre isso.
+router.get('/:workout_id/heats', cacheDeLeitura(10), heatController.getByWorkout);
 
 // ---- Variantes por categoria ----
 // PUT /api/workouts/:workout_id/variants/:category_id - Criar ou atualizar variante (protegido)
@@ -40,10 +44,11 @@ router.post(
 );
 
 // GET /api/workouts?championship_id=1 - Listar provas do campeonato (público)
-router.get('/', workoutController.getAll);
+// 60 s: descrição do WOD por categoria, congelada desde a véspera do evento.
+router.get('/', cacheDeLeitura(60), workoutController.getAll);
 
 // GET /api/workouts/:id - Detalhe da prova com todas as variantes (público)
-router.get('/:id', workoutController.getById);
+router.get('/:id', cacheDeLeitura(60), workoutController.getById);
 
 // PUT /api/workouts/:id - Atualizar prova (protegido)
 router.put(

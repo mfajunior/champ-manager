@@ -5,6 +5,7 @@ const helmet = require('helmet');
 require('dotenv').config();
 
 const { apiLimiter } = require('./middleware/rateLimiter');
+const { invalidarAposEscrita } = require('./middleware/cacheLeitura');
 
 const app = express();
 
@@ -81,6 +82,11 @@ app.get('/health', (req, res) => {
 });
 
 const authRoutes = require('./routes/auth');
+// Qualquer escrita bem-sucedida no /api limpa o cache de leitura montado nas
+// rotas públicas abaixo. Fica aqui, e não em cada controller, para não existir
+// ponto de invalidação que alguém possa esquecer (ver cacheLeitura.js).
+app.use('/api', invalidarAposEscrita);
+
 app.use('/api/auth', authRoutes);
 
 const championshipRoutes = require('./routes/championships');
