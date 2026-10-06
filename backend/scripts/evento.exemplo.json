@@ -21,7 +21,13 @@
   "gerar_baterias": false,
   "categorias": {
     "Iniciante Feminino": [
-      "Equipe A",
+      {
+        "nome": "Equipe A",
+        "atletas": [
+          "Nome do atleta 1",
+          "Nome do atleta 2"
+        ]
+      },
       "Equipe B"
     ],
     "RX Misto": [

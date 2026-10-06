@@ -119,12 +119,28 @@ async function main() {
           `  Disponíveis: ${categorias.map((c) => c.name).join(', ')}`
       );
     }
-    for (const nomeEquipe of equipes) {
+    // Cada item da categoria pode ser uma string (só o nome da equipe, como
+    // sempre foi) ou um objeto { nome, atletas: [a, b] }. Os dois formatos
+    // convivem: arquivo antigo continua funcionando sem mudar uma linha.
+    for (const item of equipes) {
+      const ehObjeto = item !== null && typeof item === 'object';
+      const nomeEquipe = ehObjeto ? item.nome : item;
+      const atletas = ehObjeto ? item.atletas || [] : [];
+
+      if (!nomeEquipe) {
+        throw new Error(
+          `Categoria "${categoria.name}": equipe sem nome.\n` +
+            '  Use "Nome da equipe" ou { "nome": "...", "atletas": ["...", "..."] }.'
+        );
+      }
+
       // eslint-disable-next-line no-await-in-loop
       await api('POST', '/api/teams', {
         championship_id: championshipId,
         category_id: categoria.id,
         name: nomeEquipe,
+        ...(atletas[0] ? { athlete_1: atletas[0] } : {}),
+        ...(atletas[1] ? { athlete_2: atletas[1] } : {}),
       });
       total += 1;
     }

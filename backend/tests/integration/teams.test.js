@@ -145,4 +145,68 @@ describe('Teams (integração com banco real)', () => {
     const getDepois = await request(app).get(`/api/teams/${teamId}`);
     expect(getDepois.status).toBe(404);
   });
+
+  /**
+   * Atletas da dupla (migration 017). Colunas nulas, campos opcionais: as
+   * equipes cadastradas antes disto continuam valendo, e o '' serve para
+   * limpar um nome digitado por engano — sem ele não haveria como desfazer.
+   */
+  describe('Atletas da equipe', () => {
+    let equipeId;
+
+    test('POST / aceita os dois atletas e devolve os dois', async () => {
+      const res = await request(app)
+        .post('/api/teams')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          championship_id: championshipId,
+          category_id: categoriaA,
+          name: 'Dupla com atletas',
+          athlete_1: '  Atleta Um  ',
+          athlete_2: 'Atleta Dois',
+        });
+
+      expect(res.status).toBe(201);
+      equipeId = res.body.data.id;
+      // trim aplicado na entrada, para "  Nome  " e "Nome" não virarem duas
+      // grafias do mesmo atleta no telão
+      expect(res.body.data.athlete_1).toBe('Atleta Um');
+      expect(res.body.data.athlete_2).toBe('Atleta Dois');
+    });
+
+    test('POST / sem atleta nenhum grava NULL, não string vazia', async () => {
+      const res = await request(app)
+        .post('/api/teams')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ championship_id: championshipId, category_id: categoriaA, name: 'Dupla sem atletas' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.athlete_1).toBeNull();
+      expect(res.body.data.athlete_2).toBeNull();
+    });
+
+    test('PUT /:id troca um atleta sem mexer no outro nem no nome', async () => {
+      const res = await request(app)
+        .put(`/api/teams/${equipeId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ athlete_2: 'Atleta Dois Corrigido' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.name).toBe('Dupla com atletas');
+      expect(res.body.data.athlete_1).toBe('Atleta Um');
+      expect(res.body.data.athlete_2).toBe('Atleta Dois Corrigido');
+    });
+
+    test('PUT /:id com string vazia LIMPA o atleta', async () => {
+      const res = await request(app)
+        .put(`/api/teams/${equipeId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ athlete_1: '' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.athlete_1).toBeNull();
+      // o outro continua intacto: ausente no corpo é diferente de vazio
+      expect(res.body.data.athlete_2).toBe('Atleta Dois Corrigido');
+    });
+  });
 });

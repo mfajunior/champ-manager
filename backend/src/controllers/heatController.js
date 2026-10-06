@@ -724,6 +724,7 @@ exports.getByWorkout = async (req, res, next) => {
       // (result_id, place, raw_value, did_not_finish), então quem só lida com
       // prova de pontuação única não percebe diferença.
       `SELECT ht.id AS heat_team_id, ht.heat_id, ht.lane_number, ht.team_id, t.name AS team_name,
+              t.athlete_1, t.athlete_2,
               c.id AS category_id, c.name AS category_name,
               r1.id AS result_id, r1."place", r1.raw_value, r1.did_not_finish,
               r1.tiebreak_seconds,

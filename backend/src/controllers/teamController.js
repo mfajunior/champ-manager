@@ -12,6 +12,11 @@ exports.create = async (req, res, next) => {
   try {
     // Formato do corpo já validado pelo middleware `validate(schemas.teamCreate)`.
     const { championship_id, category_id, name } = req.body;
+    // '' vira NULL: a coluna distingue "não informado" de nada mais, e string
+    // vazia no banco só criaria um segundo jeito de dizer a mesma coisa.
+    const vazioEhNulo = (v) => (v === undefined || v === null || v.trim() === '' ? null : v.trim());
+    const athlete1 = vazioEhNulo(req.body.athlete_1);
+    const athlete2 = vazioEhNulo(req.body.athlete_2);
 
     const category = await queryOne(
       'SELECT id, championship_id, name FROM categories WHERE id = $1',
@@ -50,10 +55,10 @@ exports.create = async (req, res, next) => {
     }
 
     const team = await queryOne(
-      `INSERT INTO teams (championship_id, category_id, name, registered_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, championship_id, category_id, name, registered_at`,
-      [championship_id, category_id, name, req.user.id]
+      `INSERT INTO teams (championship_id, category_id, name, registered_by, athlete_1, athlete_2)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, championship_id, category_id, name, athlete_1, athlete_2, registered_at`,
+      [championship_id, category_id, name, req.user.id, athlete1, athlete2]
     );
 
     res.status(201).json({
@@ -95,7 +100,7 @@ exports.getAll = async (req, res, next) => {
     // (que abriria espaço para injeção).
     const teams = await queryAll(
       `SELECT t.id, t.championship_id, t.category_id, c.name AS category_name,
-              c.gender, c.level, t.name, t.registered_at
+              c.gender, c.level, t.name, t.athlete_1, t.athlete_2, t.registered_at
        FROM teams t
        JOIN categories c ON c.id = t.category_id
        WHERE t.championship_id = $1
@@ -120,7 +125,7 @@ exports.getById = async (req, res, next) => {
 
     const team = await queryOne(
       `SELECT t.id, t.championship_id, t.category_id, c.name AS category_name,
-              c.gender, c.level, t.name, t.registered_at
+              c.gender, c.level, t.name, t.athlete_1, t.athlete_2, t.registered_at
        FROM teams t
        JOIN categories c ON c.id = t.category_id
        WHERE t.id = $1`,
@@ -223,7 +228,7 @@ exports.update = async (req, res, next) => {
     const { name, category_id } = req.body;
 
     const team = await queryOne(
-      'SELECT id, championship_id, category_id, name FROM teams WHERE id = $1',
+      'SELECT id, championship_id, category_id, name, athlete_1, athlete_2 FROM teams WHERE id = $1',
       [id]
     );
 
@@ -258,6 +263,16 @@ exports.update = async (req, res, next) => {
     const targetCategory = category_id ?? team.category_id;
     const targetName = name ?? team.name;
 
+    // Campo ausente no corpo mantém o valor; campo presente e vazio limpa.
+    // São coisas diferentes e o PATCH parcial precisa distinguir as duas.
+    const manterOuTrocar = (enviado, atual) => {
+      if (enviado === undefined) return atual;
+      if (enviado === null || enviado.trim() === '') return null;
+      return enviado.trim();
+    };
+    const targetAtleta1 = manterOuTrocar(req.body.athlete_1, team.athlete_1);
+    const targetAtleta2 = manterOuTrocar(req.body.athlete_2, team.athlete_2);
+
     const duplicate = await queryOne(
       'SELECT id FROM teams WHERE category_id = $1 AND name = $2 AND id <> $3',
       [targetCategory, targetName, id]
@@ -274,10 +289,10 @@ exports.update = async (req, res, next) => {
 
     const updated = await queryOne(
       `UPDATE teams
-       SET name = $1, category_id = $2
-       WHERE id = $3
-       RETURNING id, championship_id, category_id, name, registered_at`,
-      [targetName, targetCategory, id]
+       SET name = $1, category_id = $2, athlete_1 = $3, athlete_2 = $4
+       WHERE id = $5
+       RETURNING id, championship_id, category_id, name, athlete_1, athlete_2, registered_at`,
+      [targetName, targetCategory, targetAtleta1, targetAtleta2, id]
     );
 
     res.status(200).json({

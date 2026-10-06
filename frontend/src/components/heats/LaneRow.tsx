@@ -9,6 +9,7 @@ import {
   formatSecondsAsClock,
   parseClockToSeconds,
 } from '../../lib/scoring';
+import { NomeComAtletas } from '../teams/NomeComAtletas';
 import type { HeatLane, ScoringType } from '../../types';
 
 /**
@@ -53,6 +54,7 @@ export function LaneRow({
   const paraCampo = (valor: string | null, tipo: ScoringType) =>
     tipo === 'time' && valor ? formatSecondsAsClock(valor) : valor ?? '';
 
+  const [atletasAbertos, setAtletasAbertos] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   // Pra prova 'time', o campo já abre em mm:ss (é o que a pessoa vai
   // corrigir), não em segundos crus — raw_value sempre chega em segundos.
@@ -202,7 +204,15 @@ export function LaneRow({
   return (
     <tr className="border-b border-border last:border-0">
       <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
-      <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
+      <td className="px-3 py-2 text-sm">
+        <NomeComAtletas
+          nome={lane.team_name}
+          atleta1={lane.athlete_1}
+          atleta2={lane.athlete_2}
+          aberto={atletasAbertos}
+          onAlternar={() => setAtletasAbertos((v) => !v)}
+        />
+      </td>
       {/* Categoria da equipe, não da bateria: uma bateria pode misturar
           categorias (ver migration 005), então isso só faz sentido por raia. */}
       <td className="truncate px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">

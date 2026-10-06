@@ -30,6 +30,8 @@ interface CreateTeamInput {
   championship_id: number;
   category_id: number;
   name: string;
+  athlete_1?: string;
+  athlete_2?: string;
 }
 
 export function useCreateTeam(championshipId: number) {
@@ -38,6 +40,26 @@ export function useCreateTeam(championshipId: number) {
     mutationFn: async (input: CreateTeamInput) => (await api.post<Team>('/api/teams', input)).data,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: teamKeys.byChampionship(championshipId) });
+    },
+  });
+}
+
+export interface UpdateTeamInput {
+  name?: string;
+  athlete_1?: string | null;
+  athlete_2?: string | null;
+}
+
+export function useUpdateTeam(championshipId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: UpdateTeamInput & { id: number }) =>
+      (await api.put<Team>(`/api/teams/${id}`, body)).data,
+    onSuccess: () => {
+      // Invalida equipes E baterias: o nome da equipe e os atletas aparecem
+      // nas duas telas, e a de baterias traz esses campos embutidos.
+      queryClient.invalidateQueries({ queryKey: teamKeys.byChampionship(championshipId) });
+      queryClient.invalidateQueries({ queryKey: ['heats'] });
     },
   });
 }
