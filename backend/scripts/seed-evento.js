@@ -42,7 +42,7 @@ async function api(method, rota, body) {
   if (res.status === 429) {
     throw new Error(
       `${method} ${rota} -> 429 (rate limit)\n` +
-        '  O apiLimiter permite 300 requisições por IP a cada 15 minutos.\n' +
+        '  O apiLimiter permite 3000 requisições por IP a cada 15 minutos.\n' +
         '  Espere a janela expirar ou feche o painel aberto no navegador.'
     );
   }
@@ -133,6 +133,7 @@ async function main() {
 
   let totalProvas = 0;
   let totalVariantes = 0;
+  const provasCriadas = [];
 
   if (evento.provas?.length) {
     passo('Cadastrando provas e variantes');
@@ -147,6 +148,7 @@ async function main() {
         ...(prova.desempate ? { has_tiebreak: true } : {}),
       });
       const workoutId = criada.data.id;
+      provasCriadas.push({ id: workoutId, numero: prova.numero, nome: prova.nome });
       totalProvas += 1;
 
       // A variante é o que cada categoria de fato executa: mesma prova no
@@ -176,10 +178,74 @@ async function main() {
     }
   }
 
+  // --------------------------------------------------------------- PONTUAÇÃO
+  // O campeonato nasce em `legacy`, que é o default da coluna no banco. Sem o
+  // bloco "pontuacao" no arquivo ele continua assim — comportamento de antes,
+  // para não mudar nada por baixo de quem já usa o script. Com o bloco, cria a
+  // tabela de pontos e troca o modelo.
+  //
+  // Vale ligar: foi exatamente isso que faltou no ensaio de 06/10. O
+  // campeonato nasceu em legacy, o placar apareceu com coluna "SOMA" em vez de
+  // "PONTOS", e só não virou resultado errado porque alguém olhou a tela antes
+  // de lançar.
+  let resumoPontuacao = 'legacy (soma de colocações)';
+  if (evento.pontuacao) {
+    passo('Configurando a pontuação');
+
+    const tabela = await api('POST', `/api/championships/${championshipId}/points-tables`, {
+      name: evento.pontuacao.nome || 'Tabela do evento',
+      max_points: evento.pontuacao.max_pontos,
+      ranges: (evento.pontuacao.faixas || []).map((faixa) => ({
+        start_place: faixa.inicio,
+        end_place: faixa.fim ?? null,
+        decrement: faixa.decremento,
+      })),
+    });
+
+    // confirm: true porque a troca reescreve o placar inteiro. Aqui o
+    // campeonato acabou de nascer e não há placar para reescrever, mas o
+    // endpoint exige a confirmação explícita de qualquer jeito.
+    await api('PUT', `/api/championships/${championshipId}/scoring-model`, {
+      scoring_model: 'points_table',
+      points_table_id: tabela.data.id,
+      confirm: true,
+    });
+
+    const faixas = (evento.pontuacao.faixas || [])
+      .map((f) => `${f.inicio}-${f.fim ?? '+'}: -${f.decremento}`)
+      .join(', ');
+    resumoPontuacao = `points_table (${evento.pontuacao.max_pontos} no 1º; ${faixas})`;
+    ok(resumoPontuacao);
+  }
+
+  // ---------------------------------------------------------------- BATERIAS
+  // Desligado por padrão, e isso é decisão e não esquecimento: gerar bateria é
+  // decidir ordem e horário, e costuma merecer uma conferida na tela antes de
+  // valer. Com "gerar_baterias": true, o seeder gera — o que serve para montar
+  // um ambiente de teste inteiro num comando só.
+  let totalBaterias = 0;
+  if (evento.gerar_baterias && provasCriadas.length) {
+    passo('Gerando as baterias');
+    for (const prova of provasCriadas) {
+      // eslint-disable-next-line no-await-in-loop
+      await api('POST', `/api/workouts/${prova.id}/heats`, {});
+      // eslint-disable-next-line no-await-in-loop
+      const geradas = await api('GET', `/api/workouts/${prova.id}/heats`);
+      const porBateria = (geradas.data || []).map((b) => (b.teams || []).length);
+      totalBaterias += porBateria.length;
+      ok(`Prova ${prova.numero}: ${porBateria.length} baterias (${porBateria.join(',')})`);
+    }
+  }
+
   console.log(`\n✓ ${total} equipes, ${totalProvas} provas, ${totalVariantes} variantes.`);
-  console.log(`  Campeonato #${championshipId}.`);
-  console.log('  Falta gerar as baterias — isso fica na tela, porque depende de');
-  console.log('  conferir a ordem e o horário antes de valer.');
+  console.log(`  Campeonato #${championshipId}, pontuação ${resumoPontuacao}.`);
+  if (totalBaterias) {
+    console.log(`  ${totalBaterias} baterias geradas.`);
+  } else {
+    console.log('  Falta gerar as baterias — isso fica na tela, porque depende de');
+    console.log('  conferir a ordem e o horário antes de valer.');
+    console.log('  (Para gerar aqui, ponha "gerar_baterias": true no arquivo.)');
+  }
 }
 
 main().catch((erro) => {

@@ -7,6 +7,18 @@
     "transicao_segundos": 120,
     "inicio": "07:00"
   },
+  "pontuacao": {
+    "nome": "Padrao do evento",
+    "max_pontos": 100,
+    "faixas": [
+      {
+        "inicio": 1,
+        "fim": null,
+        "decremento": 3
+      }
+    ]
+  },
+  "gerar_baterias": false,
   "categorias": {
     "Iniciante Feminino": [
       "Equipe A",
