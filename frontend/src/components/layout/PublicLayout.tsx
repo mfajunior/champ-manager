@@ -30,7 +30,9 @@ export function PublicLayout({
       <div className="mx-auto flex max-w-6xl">
         <Sidebar championshipId={championshipId} />
 
-        <main className="min-w-0 flex-1 px-6 py-10">
+        {/* px-4 no celular: 24px de cada lado tiravam 48px de uma tela de 360px,
+            e é justamente nas tabelas que esse espaço faltava. */}
+        <main className="min-w-0 flex-1 px-4 py-10 sm:px-6">
           <div className="mx-auto max-w-4xl">{children}</div>
         </main>
       </div>

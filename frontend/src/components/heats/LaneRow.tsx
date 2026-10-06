@@ -9,6 +9,7 @@ import {
   formatSecondsAsClock,
   parseClockToSeconds,
 } from '../../lib/scoring';
+import { abreviarCategoria } from '../../lib/categorias';
 import { NomeComAtletas } from '../teams/NomeComAtletas';
 import type { HeatLane, ScoringType } from '../../types';
 
@@ -216,7 +217,7 @@ export function LaneRow({
       {/* Categoria da equipe, não da bateria: uma bateria pode misturar
           categorias (ver migration 005), então isso só faz sentido por raia. */}
       <td className="truncate px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {lane.category_name}
+        {abreviarCategoria(lane.category_name)}
       </td>
 
       {!isEditing && (

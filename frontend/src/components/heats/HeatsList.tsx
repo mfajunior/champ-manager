@@ -82,7 +82,10 @@ export function HeatsList({
               <colgroup>
                 <col className="w-14" />
                 <col />
-                <col className="w-44" />
+                {/* w-44 cabia "INICIANTE MASCULINO" inteiro; com a abreviação
+                    (lib/categorias) w-24 basta, e os 80px sobrando vão para a
+                    coluna de equipe, que é a única sem largura fixa. */}
+                <col className="w-24" />
                 <col className="w-32" />
                 <col className="w-24" />
                 <col className="w-48" />
