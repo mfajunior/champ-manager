@@ -1,4 +1,3 @@
-// src/validations/schemas.js
 const Joi = require('joi');
 const { ALLOWED_SCORING_TYPES } = require('../controllers/workoutController');
 

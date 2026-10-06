@@ -19,11 +19,10 @@ module.exports = {
   //
   // ARMADILHA: `--detectOpenHandles` ANULA tudo isso. O Jest trata a flag
   // como se fosse `--runInBand` (shouldRunInBand em @jest/core: `if
-  // (runInBand || detectOpenHandles) return true`), porque nao consegue
-  // rastrear handle vazado dentro de um worker. Ela ficou no script `test`
-  // por um tempo e deixou a suite inteira em serie sem ninguem notar. Hoje
-  // mora no `npm run test:handles`, pra usar quando o processo nao encerrar
-  // sozinho.
+  // (runInBand || detectOpenHandles) return true`), porque não consegue
+  // rastrear handle vazado dentro de um worker. Ela ficou no script `test` por
+  // um tempo e deixou a suíte inteira em série sem ninguém notar. Hoje mora no
+  // `npm run test:handles`, pra usar quando o processo não encerrar sozinho.
   collectCoverageFrom: [
     'src/**/*.js',
     '!src/server.js', // só bootstrap (listen, shutdown) — não tem branch pra cobrir

@@ -1,5 +1,3 @@
-// scripts/migrate.js
-//
 // Roda as migrations de migrations/*.sql, em ordem alfabética (001, 002,
 // 003...), direto pelo Node — sem precisar do cliente `psql` instalado na
 // máquina.

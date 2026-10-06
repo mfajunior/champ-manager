@@ -1,4 +1,3 @@
-// src/middleware/cacheLeitura.js
 /**
  * CACHE DE LEITURA EM MEMÓRIA, PARA AS ROTAS PÚBLICAS QUE A PLATEIA ABRE JUNTO
  *

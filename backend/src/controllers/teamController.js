@@ -7,7 +7,6 @@ const { query, queryOne, queryAll } = require('../config/database');
  */
 
 // POST /api/teams  (protegido)
-// body: { championship_id, category_id, name }
 exports.create = async (req, res, next) => {
   try {
     // Formato do corpo já validado pelo middleware `validate(schemas.teamCreate)`.
@@ -219,7 +218,6 @@ exports.getResults = async (req, res, next) => {
 };
 
 // PUT /api/teams/:id  (protegido)
-// body: { name?, category_id? }
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;

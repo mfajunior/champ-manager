@@ -140,7 +140,6 @@ const carregarRaia = (client, heatTeamId) =>
     .then((r) => r.rows[0] || null);
 
 // POST /api/heats/lanes/swap  (protegido)
-// body: { heat_team_id_a, heat_team_id_b }
 //
 // Troca duas equipes de lugar. É a operação segura por construção: o tamanho
 // de cada bateria não muda, nenhuma raia fica duplicada no fim, e nenhuma
@@ -249,7 +248,6 @@ exports.swapLanes = async (req, res, next) => {
 };
 
 // PUT /api/heats/lanes/:heat_team_id  (protegido)
-// body: { heat_id, lane_number }
 //
 // Move uma equipe para uma raia LIVRE de outra bateria. A troca não cobre este
 // caso: com a distribuição equilibrada as baterias têm tamanhos diferentes
@@ -352,7 +350,6 @@ exports.moveLane = async (req, res, next) => {
 };
 
 // POST /api/workouts/:workout_id/heats  (protegido)
-// body: { force? }
 // Raias, transição e horário de início não são mais parâmetros da chamada —
 // são globais do campeonato (championships.lanes_per_heat/transition_seconds
 // /start_time, configurados uma vez). A prova inteira é gerada de uma vez,
@@ -760,7 +757,6 @@ exports.getByWorkout = async (req, res, next) => {
 };
 
 // PUT /api/heats/:id  (protegido)
-// body: { scheduled_time?, status? }
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;

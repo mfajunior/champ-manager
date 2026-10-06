@@ -1,5 +1,3 @@
-// scripts/seed-evento.js
-//
 // Cria um campeonato e cadastra as equipes a partir de um arquivo JSON.
 //
 // POR QUE EXISTE

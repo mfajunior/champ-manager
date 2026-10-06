@@ -1,4 +1,3 @@
-// src/config/database.js
 const pg = require('pg');
 require('dotenv').config();
 
@@ -53,11 +52,11 @@ const conexao = process.env.DATABASE_URL
 
 const pool = new Pool({
   ...conexao,
-  // 20 e o teto do processo de producao, que e UM. Sob jest, cada arquivo de
-  // teste roda no seu proprio processo e abriria o seu proprio pool de 20 —
-  // com 7 workers isso passa das 100 conexoes padrao do Postgres e a suite
+  // 20 é o teto do processo de produção, que é UM. Sob jest, cada arquivo de
+  // teste roda no seu próprio processo e abriria o seu próprio pool de 20 —
+  // com 7 workers isso passa das 100 conexões padrão do Postgres e a suíte
   // quebra com "too many clients already". Cada teste faz query sequencial,
-  // entao 5 por processo sobra.
+  // então 5 por processo sobra.
   max: process.env.NODE_ENV === 'test' ? 5 : 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

@@ -1,5 +1,3 @@
-// src/config/cors.js
-//
 // CORS_ORIGIN aceita uma lista separada por vírgula, não só uma origem única.
 // Motivo: o mesmo frontend em dev roda em pelo menos duas origens diferentes —
 // http://localhost:3000 (o próprio PC) e http://<IP-da-rede>:3000 (quando

@@ -110,7 +110,6 @@ const logAuditEntry = async ({
 };
 
 // POST /api/results  (protegido)
-// body: { heat_team_id, raw_value, did_not_finish }
 exports.create = async (req, res, next) => {
   try {
     const { heat_team_id, raw_value, did_not_finish, tiebreak_seconds } = req.body;
@@ -307,7 +306,6 @@ exports.getHistory = async (req, res, next) => {
 };
 
 // PUT /api/results/:id  (protegido)
-// body: { raw_value?, did_not_finish? }
 // Aceita atualizar só um dos dois campos: o outro mantém o valor atual da linha.
 exports.update = async (req, res, next) => {
   try {
