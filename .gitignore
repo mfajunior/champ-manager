@@ -56,3 +56,6 @@ Thumbs.db
 # repositorio e publico). O script scripts/seed-evento.js e versionado; os
 # participantes ficam so na maquina. Ver scripts/evento.exemplo.json.
 backend/scripts/evento-*.json
+
+# Relatorio de tempo do jest (npx jest --json), gerado sob demanda
+jest-report.json

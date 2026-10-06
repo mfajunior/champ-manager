@@ -53,7 +53,12 @@ const conexao = process.env.DATABASE_URL
 
 const pool = new Pool({
   ...conexao,
-  max: 20, // máximo de conexões simultâneas
+  // 20 e o teto do processo de producao, que e UM. Sob jest, cada arquivo de
+  // teste roda no seu proprio processo e abriria o seu proprio pool de 20 —
+  // com 7 workers isso passa das 100 conexoes padrao do Postgres e a suite
+  // quebra com "too many clients already". Cada teste faz query sequencial,
+  // entao 5 por processo sobra.
+  max: process.env.NODE_ENV === 'test' ? 5 : 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
   // Vale para os dois formatos: mesmo com sslmode na string de conexão, a
