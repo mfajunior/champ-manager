@@ -15,7 +15,10 @@ export function ProtectedLayout() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      {/* px-4 no celular pelo mesmo motivo do PublicLayout: o organizador
+          lança resultado pelo telefone, e a tabela de baterias tem seis
+          colunas disputando a largura. */}
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <Outlet />
       </main>
     </div>

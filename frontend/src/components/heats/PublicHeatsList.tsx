@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import { NomeComAtletas } from '../teams/NomeComAtletas';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
+import { abreviarCategoria } from '../../lib/categorias';
 import { formatTime } from '../../lib/format';
 import type { Heat } from '../../types';
 
@@ -67,10 +68,15 @@ export function PublicHeatsList({ heats }: { heats: Heat[] }) {
                   compridos numa bateria empurram "Categoria" mais pra direita
                   só ali, e a coluna fica desalinhada entre as baterias.
                   table-fixed + colgroup trava a mesma largura em todas. */}
+              {/* A categoria vai abreviada (ver lib/categorias), então ela
+                  passou a ter largura FIXA e pequena, e a coluna de equipe
+                  ficou com o resto em vez dos 2/5 que tinha. No celular isso
+                  troca "Iniciante Masculino" quebrando em duas linhas por
+                  "INIC MASC" numa só, e devolve a diferença para o nome. */}
               <colgroup>
-                <col className="w-16" />
-                <col className="w-2/5" />
+                <col className="w-10 sm:w-16" />
                 <col />
+                <col className="w-24 sm:w-32" />
               </colgroup>
               <thead>
                 <tr className="text-left text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -96,7 +102,9 @@ export function PublicHeatsList({ heats }: { heats: Heat[] }) {
                         }
                       />
                     </td>
-                    <td className="px-3 py-2 text-sm text-muted-foreground">{lane.category_name}</td>
+                    <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground sm:text-sm">
+                      {abreviarCategoria(lane.category_name)}
+                    </td>
                   </tr>
                 ))}
               </tbody>

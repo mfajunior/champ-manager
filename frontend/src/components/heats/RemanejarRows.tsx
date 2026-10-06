@@ -1,3 +1,4 @@
+import { abreviarCategoria } from '../../lib/categorias';
 import type { HeatLane } from '../../types';
 
 /**
@@ -41,7 +42,7 @@ export function LaneRemanejarRow({
       <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
       <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
       <td className="truncate px-3 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {lane.category_name}
+        {abreviarCategoria(lane.category_name)}
       </td>
       <td className="px-3 py-2 text-xs text-muted-foreground" colSpan={2}>
         {selecionada && 'selecionada'}

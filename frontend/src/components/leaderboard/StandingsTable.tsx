@@ -48,10 +48,14 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
                 categoria com nomes compridos desalinha a coluna em relação
                 às outras. table-fixed + colgroup trava a mesma largura em
                 todas (mesma ideia já usada em PublicHeatsList). */}
+            {/* Larguras menores no celular: a coluna de colocação e a de
+                pontos tinham medida de desktop (w-14 / w-24) e juntas comiam
+                metade da tela de um telefone, sobrando pouco para o nome da
+                equipe — que é o dado que a pessoa está procurando. */}
             <colgroup>
-              <col className="w-14" />
+              <col className="w-10 sm:w-14" />
               <col />
-              <col className="w-24" />
+              <col className="w-16 sm:w-24" />
             </colgroup>
             <thead>
               <tr className="border-b-2 border-secondary text-left text-xs font-bold uppercase tracking-widest text-muted-foreground">
@@ -82,7 +86,12 @@ export function StandingsTable({ standings }: { standings: Standing[] }) {
                           <span className="text-base text-muted-foreground">—</span>
                         )}
                       </td>
-                      <td className="truncate py-3 pr-3 text-lg font-semibold">
+                      {/* Sem truncate: no celular o nome quebra em mais de
+                          uma linha em vez de terminar em "...". A linha fica
+                          mais alta, o que é aceitável numa lista que se lê de
+                          cima para baixo, e nenhum nome fica pela metade. Em
+                          tela larga não há o que quebrar. */}
+                      <td className="break-words py-3 pr-3 text-base font-semibold sm:text-lg">
                         <span className="mr-1.5 inline-block text-xs text-muted-foreground">
                           {isExpanded ? '▾' : '▸'}
                         </span>
