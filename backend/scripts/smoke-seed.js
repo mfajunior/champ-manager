@@ -1,5 +1,3 @@
-// scripts/smoke-seed.js
-//
 // Popula um campeonato de teste com volume realista e confere o resultado.
 // Substitui os antigos smoke-test*.ps1 (removidos: chamavam a rota de
 // registro, que não existe mais, e mandavam parâmetros de bateria que

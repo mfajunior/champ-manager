@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { useDeleteTeam } from '../../hooks/useTeams';
+import { EditarEquipeInline } from './EditarEquipeInline';
 import type { Team } from '../../types';
 
 export function TeamsTable({ championshipId, teams }: { championshipId: number; teams: Team[] }) {
   const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
+  const [emEdicao, setEmEdicao] = useState<number | null>(null);
   const deleteTeam = useDeleteTeam(championshipId);
 
   if (teams.length === 0) {
@@ -27,14 +29,38 @@ export function TeamsTable({ championshipId, teams }: { championshipId: number; 
           </h3>
           <ul className="divide-y divide-border border border-border">
             {categoryTeams.map((team) => (
-              <li key={team.id} className="flex items-center justify-between px-4 py-3">
-                <span className="text-sm">{team.name}</span>
-                <button
-                  onClick={() => setTeamToDelete(team)}
-                  className="text-xs font-bold uppercase tracking-wider text-destructive hover:opacity-70"
-                >
-                  Remover
-                </button>
+              <li key={team.id}>
+                <div className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <span className="block truncate text-sm">{team.name}</span>
+                    {(team.athlete_1 || team.athlete_2) && (
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[team.athlete_1, team.athlete_2].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-4">
+                    <button
+                      onClick={() => setEmEdicao((atual) => (atual === team.id ? null : team.id))}
+                      className="text-xs font-bold uppercase tracking-wider text-brand hover:opacity-70"
+                    >
+                      {emEdicao === team.id ? 'Fechar' : 'Editar'}
+                    </button>
+                    <button
+                      onClick={() => setTeamToDelete(team)}
+                      className="text-xs font-bold uppercase tracking-wider text-destructive hover:opacity-70"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </div>
+                {emEdicao === team.id && (
+                  <EditarEquipeInline
+                    championshipId={championshipId}
+                    team={team}
+                    onFechar={() => setEmEdicao(null)}
+                  />
+                )}
               </li>
             ))}
           </ul>

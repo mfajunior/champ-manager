@@ -1,5 +1,3 @@
-// src/middleware/validate.js
-
 /**
  * Middleware genérico de validação com Joi.
  *

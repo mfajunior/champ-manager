@@ -3,52 +3,33 @@ const { queryAll } = require('../config/database');
 /**
  * A consulta do ranking de um campeonato, num lugar só.
  *
- * POR QUE ISSO EXISTE
- * Esta query vivia duplicada: uma cópia em leaderboardController (a resposta
- * de GET /api/leaderboard) e outra em resultController.broadcastLeaderboard
- * (o payload empurrado pelo WebSocket a cada resultado). São o MESMO dado,
- * consumido pela MESMA tela — o placar público faz a busca inicial por HTTP
- * e recebe as atualizações seguintes pelo socket, jogando as duas no mesmo
- * cache do React Query (frontend/src/hooks/useLeaderboard.ts).
+ * Dois caminhos entregam o MESMO dado à MESMA tela: o GET /api/leaderboard e o
+ * payload que o WebSocket empurra a cada resultado. O placar público faz a
+ * busca inicial por HTTP e recebe o resto pelo socket, jogando as duas no
+ * mesmo cache do React Query (frontend/src/hooks/useLeaderboard.ts). Enquanto
+ * a query estava duplicada, uma cópia foi corrigida e a outra não, e o mesmo
+ * cache passou a receber dois formatos de linha dependendo da origem — sem
+ * quebrar a tela, porque nada lia os campos que faltavam. É o tipo de bug que
+ * espera meses para aparecer.
  *
- * Duas cópias significam duas chances de corrigir só uma. Foi o que
- * aconteceu: quando a consulta passou a partir de `teams` com LEFT JOIN em
- * team_standings (pra equipe sem resultado ainda aparecer no placar), só a
- * do controller foi corrigida. A do broadcast continuou partindo de
- * team_standings com INNER JOIN e sem gender/level — então o mesmo cache
- * recebia dois formatos diferentes de linha, dependendo de ter vindo do GET
- * ou do socket. Não quebrava a tela porque nada lê gender/level hoje, que é
- * exatamente o tipo de bug que espera meses pra aparecer.
- *
- * DECISÕES DA QUERY (herdadas da versão correta, do leaderboardController)
+ * DECISÕES DA QUERY
  * - Parte de `teams`, não de `team_standings`: a tabela de standings é cache
- *   escrito pelo trigger trg_result_changed, então antes do primeiro
- *   resultado do campeonato ela está vazia mesmo com equipes cadastradas.
- *   Com LEFT JOIN, toda equipe inscrita aparece desde já.
+ *   escrito pelo trigger trg_result_changed, então antes do primeiro resultado
+ *   ela está vazia mesmo com equipes cadastradas. Com LEFT JOIN, toda equipe
+ *   inscrita aparece desde já.
  * - COALESCE em total_score/workouts_completed: sem linha no cache, 0 é a
  *   resposta honesta. `place` NÃO recebe COALESCE de propósito — null ali
  *   significa "ainda não pontuou", e 0 fingiria uma colocação que não existe.
- * - A ordenação empurra quem tem place null pro fim de cada categoria
- *   ((ts.place IS NULL) ASC) e desempata por nome, pra lista não dançar
- *   entre dois carregamentos.
+ * - A ordenação empurra place null para o fim de cada categoria e desempata
+ *   por nome, para a lista não dançar entre dois carregamentos.
  *
- * OS DOIS MODELOS DE PONTUAÇÃO (migrations 011 e 012)
- * A query NÃO tem desvio por modelo, e isso é de propósito: `place` já vem
- * calculado pelo banco com a regra certa nos dois casos — recalculate_standings
- * ordena por soma de colocações crescente, recalculate_points_standings por
- * pontos decrescente, e as duas gravam na mesma coluna. Ordenar por `place`
- * serve aos dois sem um único IF aqui.
- *
- * O que muda é o que a linha CARREGA. O contrato foi ESTENDIDO, não
- * redefinido: total_score continua significando exatamente o que sempre
- * significou (soma de colocações), e os campos novos vêm ao lado. Fazer
- * total_score carregar pontos quando o modelo é points_table pareceria
- * econômico e seria a mesma armadilha que motivou criar total_points como
- * coluna separada no banco — um campo com dois significados dependendo do
- * contexto é bug esperando quem for ler depois.
- *
- * Como só há adição de campos, todo consumidor atual continua funcionando sem
- * mudança; o frontend escolhe o que exibir olhando scoring_model.
+ * NÃO há desvio por modelo de pontuação (migrations 011 e 012), de propósito:
+ * `place` já chega calculado com a regra certa nos dois casos — um ordena por
+ * soma de colocações crescente, o outro por pontos decrescente, e os dois
+ * gravam na mesma coluna. O que muda é o que a linha CARREGA: total_score
+ * continua significando soma de colocações e total_points vem ao lado, nunca
+ * no mesmo campo. Campo com dois significados dependendo do contexto é bug
+ * esperando quem for ler depois.
  *
  * @param {number|string} championshipId
  * @param {number|string|null} categoryId  null traz todas as categorias.

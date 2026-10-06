@@ -1,4 +1,3 @@
-// src/validations/schemas.js
 const Joi = require('joi');
 const { ALLOWED_SCORING_TYPES } = require('../controllers/workoutController');
 
@@ -96,15 +95,24 @@ const championshipUpdate = Joi.object({
   start_time: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/),
 }).min(1);
 
+// Os dois atletas da dupla (migration 017). Opcionais e aceitando vazio: as
+// equipes cadastradas antes disto não têm nome de atleta, e mandar '' é como a
+// tela limpa um campo preenchido por engano.
+const nomeDeAtleta = Joi.string().trim().max(255).allow('', null);
+
 const teamCreate = Joi.object({
   championship_id: Joi.number().integer().positive().required(),
   category_id: Joi.number().integer().positive().required(),
   name: Joi.string().trim().min(1).required(),
+  athlete_1: nomeDeAtleta,
+  athlete_2: nomeDeAtleta,
 });
 
 const teamUpdate = Joi.object({
   name: Joi.string().trim().min(1),
   category_id: Joi.number().integer().positive(),
+  athlete_1: nomeDeAtleta,
+  athlete_2: nomeDeAtleta,
 }).min(1);
 
 // scoring_type_2 preenchido = prova com DUAS pontuações independentes

@@ -21,7 +21,6 @@ const ALLOWED_SCORING_TYPES = ['time', 'reps', 'load'];
 exports.ALLOWED_SCORING_TYPES = ALLOWED_SCORING_TYPES;
 
 // POST /api/workouts  (protegido)
-// body: { championship_id, workout_number, name, type, scoring_type? }
 exports.create = async (req, res, next) => {
   try {
     // Presença dos obrigatórios e enum de scoring_type já validados pelo
@@ -164,7 +163,6 @@ exports.getById = async (req, res, next) => {
 };
 
 // PUT /api/workouts/:id  (protegido)
-// body: { workout_number?, name?, type?, scoring_type?, status?, description? }
 exports.update = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -314,7 +312,6 @@ exports.delete = async (req, res, next) => {
 // ============================================================================
 
 // PUT /api/workouts/:workout_id/variants/:category_id  (protegido)
-// body: { description, time_cap_seconds? }
 //
 // É PUT e não POST porque a operação é idempotente: existe no máximo uma
 // variante por (prova, categoria). Chamar duas vezes com o mesmo corpo deixa o

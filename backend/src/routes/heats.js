@@ -10,11 +10,10 @@ const { authMiddleware } = require('../middleware/auth');
  * sozinha pelo id — não precisa da prova na URL.
  */
 
-// PUT /api/heats/:id - Ajustar horário ou status da bateria (protegido)
-// Remanejamento manual de raias. Vem ANTES de '/:id' de propósito: o Express
-// casa as rotas na ordem em que são declaradas, e '/lanes/swap' bateria em
-// '/:id' com id='lanes' se viesse depois.
-//
+// As duas rotas de /lanes vêm ANTES de '/:id' de propósito: o Express casa as
+// rotas na ordem em que são declaradas, e '/lanes/swap' bateria em '/:id' com
+// id='lanes' se viesse depois.
+
 // Trocar duas equipes de lugar. Segura por construção: os tamanhos das
 // baterias não mudam e nenhuma raia fica duplicada no fim.
 router.post('/lanes/swap', authMiddleware, heatController.swapLanes);
@@ -25,6 +24,7 @@ router.post('/lanes/swap', authMiddleware, heatController.swapLanes);
 // uma troca.
 router.put('/lanes/:heat_team_id', authMiddleware, heatController.moveLane);
 
+// Horário e status da bateria — PUT /api/heats/:id.
 router.put('/:id', authMiddleware, heatController.update);
 
 module.exports = router;

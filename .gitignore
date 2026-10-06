@@ -52,6 +52,10 @@ Thumbs.db
 # Claude Code — overrides locais (nao versionados)
 .claude/settings.local.json
 
-# Dados reais de eventos (nomes de equipes = dados de pessoas reais; repo publico)
-# O exemplo generico (evento.exemplo.json) continua versionado.
+# Dados de evento real (nomes de equipe costumam ser nomes de pessoas, e este
+# repositorio e publico). O script scripts/seed-evento.js e versionado; os
+# participantes ficam so na maquina. Ver scripts/evento.exemplo.json.
 backend/scripts/evento-*.json
+
+# Relatorio de tempo do jest (npx jest --json), gerado sob demanda
+jest-report.json

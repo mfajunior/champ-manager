@@ -1,4 +1,3 @@
-// src/middleware/auth.js
 const jwt = require('jsonwebtoken');
 
 /**
@@ -31,7 +30,6 @@ const authMiddleware = (req, res, next) => {
 
     const token = parts[1];
 
-    // Verifica e decodifica o JWT
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Passa dados do usuário para req.user

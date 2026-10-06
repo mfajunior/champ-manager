@@ -1,5 +1,3 @@
-// src/server.js
-
 /**
  * O fuso do processo é fixado ANTES de qualquer outro require, porque o Node
  * lê process.env.TZ na primeira vez que um Date é construído — depois disso,
@@ -116,5 +114,4 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-// Inicia o servidor
 startServer();

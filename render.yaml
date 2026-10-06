@@ -1,9 +1,10 @@
 # Blueprint do ScoreUp no Render.
 #
 # Declara a infraestrutura como arquivo em vez de cliques. Importa por dois
-# motivos: a recriação do banco planejada para ~20/10 (o Postgres gratuito
-# expira 30 dias depois de criado) vira reprodutível, e o deploy fica
-# documentado para quem olhar o repositório depois.
+# motivos: a recriação do banco (o Postgres gratuito expira 30 dias depois de
+# CRIADO, não de usado) vira reprodutível, e o deploy fica documentado para
+# quem olhar o repositório depois. A data de expiração sai do painel do Render,
+# não daqui — conferir, porque ela cai perto do evento.
 #
 # Plano gratuito em tudo. Duas consequências aceitas de propósito:
 #   - O web service hiberna após 15 min sem tráfego e leva ~1 min para voltar.
@@ -42,7 +43,8 @@ services:
           name: scoreup-db
           property: connectionString
       # Liga trust proxy no src/app.js: sem isso todos os espectadores chegam
-      # como o mesmo IP e dividem o balde de 300 requisições por 15 min.
+      # como o mesmo IP e dividem o mesmo balde do rate limit (o valor em vigor
+      # está em middleware/rateLimiter.js).
       - key: NODE_ENV
         value: production
       # A suíte provou que o código é independente de fuso, mas produção e

@@ -1,4 +1,5 @@
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
+import { NomeComAtletas } from '../teams/NomeComAtletas';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { formatTime } from '../../lib/format';
 import type { Heat } from '../../types';
@@ -23,6 +24,10 @@ import type { Heat } from '../../types';
 // categoria: desde a migration 005 uma bateria pode misturar categorias
 // diferentes, então a categoria é mostrada por raia, não por bateria.
 export function PublicHeatsList({ heats }: { heats: Heat[] }) {
+  // Uma raia aberta por vez: no telão, duas listas de atletas abertas ao
+  // mesmo tempo empurram as baterias seguintes para fora da tela.
+  const [raiaAberta, setRaiaAberta] = useState<number | null>(null);
+
   if (heats.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -78,7 +83,19 @@ export function PublicHeatsList({ heats }: { heats: Heat[] }) {
                 {heat.teams.map((lane) => (
                   <tr key={lane.heat_team_id} className="border-b border-border last:border-0">
                     <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
-                    <td className="truncate px-3 py-2 text-sm">{lane.team_name}</td>
+                    <td className="px-3 py-2 text-sm">
+                      <NomeComAtletas
+                        nome={lane.team_name}
+                        atleta1={lane.athlete_1}
+                        atleta2={lane.athlete_2}
+                        aberto={raiaAberta === lane.heat_team_id}
+                        onAlternar={() =>
+                          setRaiaAberta((atual) =>
+                            atual === lane.heat_team_id ? null : lane.heat_team_id
+                          )
+                        }
+                      />
+                    </td>
                     <td className="px-3 py-2 text-sm text-muted-foreground">{lane.category_name}</td>
                   </tr>
                 ))}

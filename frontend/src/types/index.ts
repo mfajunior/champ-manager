@@ -108,6 +108,9 @@ export interface Team {
   gender: Category['gender'];
   level: Category['level'];
   name: string;
+  /** Os dois atletas da dupla (migration 017). null = nunca preenchido. */
+  athlete_1: string | null;
+  athlete_2: string | null;
   registered_at: string;
 }
 
@@ -152,6 +155,8 @@ export interface HeatLane {
   lane_number: number;
   team_id: number;
   team_name: string;
+  athlete_1: string | null;
+  athlete_2: string | null;
   // Categoria da EQUIPE, não da bateria: desde a migration 005 uma bateria
   // pode misturar categorias, então cada raia carrega a sua própria.
   category_id: number;

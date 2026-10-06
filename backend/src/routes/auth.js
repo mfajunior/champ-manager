@@ -12,7 +12,6 @@ const schemas = require('../validations/schemas');
 // não existe distinção de papel/role entre usuários neste sistema. Ver
 // ARCHITECTURE.md para o registro dessa decisão.
 
-// POST /api/auth/login
 router.post('/login', authLimiter, validate(schemas.authLogin), authController.login);
 
 module.exports = router;

@@ -38,9 +38,6 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// ==================== MIDDLEWARE ====================
-
-// Security
 app.use(helmet());
 // maxAge: o navegador manda um OPTIONS (preflight) antes de cada chamada que
 // não seja "requisição simples" do CORS. Sem maxAge vale o padrão do Chrome,
@@ -62,7 +59,6 @@ app.use(cors({
 // authLimiter, mais restrito, é aplicado só em /api/auth (routes/auth.js).
 app.use('/api', apiLimiter);
 
-// Body parsing
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -74,9 +70,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ==================== ROUTES ====================
-
-// Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
@@ -111,9 +104,6 @@ app.use('/api/results', resultsRoutes);
 const leaderboardRoutes = require('./routes/leaderboard');
 app.use('/api/leaderboard', leaderboardRoutes);
 
-// ==================== ERROR HANDLING ====================
-
-// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     error: {
@@ -123,7 +113,10 @@ app.use((req, res) => {
   });
 });
 
-// Centralized error handler
+// Os QUATRO argumentos são o que faz o Express tratar isto como error
+// handler. Tirar o `next` por estar sem uso — e um lint pede isso — vira um
+// middleware comum, que nunca recebe erro: toda exceção passaria a cair no
+// handler padrão do Express, em HTML e com stack em produção.
 app.use((err, req, res, next) => {
   console.error(JSON.stringify({
     level: 'error',

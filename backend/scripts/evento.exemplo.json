@@ -1,0 +1,56 @@
+{
+  "nome": "Nome do Campeonato",
+  "data": "2026-12-31",
+  "local": "Nome do box",
+  "agenda": {
+    "raias": 4,
+    "transicao_segundos": 120,
+    "inicio": "07:00"
+  },
+  "pontuacao": {
+    "nome": "Padrao do evento",
+    "max_pontos": 100,
+    "faixas": [
+      {
+        "inicio": 1,
+        "fim": null,
+        "decremento": 3
+      }
+    ]
+  },
+  "gerar_baterias": false,
+  "categorias": {
+    "Iniciante Feminino": [
+      {
+        "nome": "Equipe A",
+        "atletas": [
+          "Nome do atleta 1",
+          "Nome do atleta 2"
+        ]
+      },
+      "Equipe B"
+    ],
+    "RX Misto": [
+      "Equipe C"
+    ]
+  },
+  "provas": [
+    {
+      "numero": 1,
+      "nome": "Nome da prova",
+      "pontuacao": "time",
+      "pontuacao_2": "reps",
+      "desempate": false,
+      "variantes": {
+        "Iniciante Feminino": {
+          "descricao": "20 Thrusters — 45 lb\n20 Pull Up",
+          "time_cap_segundos": 600
+        },
+        "RX Misto": {
+          "descricao": "20 Thrusters — 95 lb (M) / 65 lb (F)\n20 C2B",
+          "time_cap_segundos": 600
+        }
+      }
+    }
+  ]
+}

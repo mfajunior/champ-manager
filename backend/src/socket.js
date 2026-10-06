@@ -1,4 +1,3 @@
-// src/socket.js
 const { Server } = require('socket.io');
 const { corsOriginChecker } = require('./config/cors');
 

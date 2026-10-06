@@ -61,7 +61,7 @@ describe('Championships (integração com banco real)', () => {
    * pela conversão para Date do driver, então mede o que está REALMENTE
    * gravado na coluna, e não o que a serialização faz parecer.
    *
-   * Os 175 testes que existiam antes mandavam datas válidas e nenhum
+   * A suite que existia antes mandava datas válidas e nenhum
    * conferia a volta — foi essa lacuna, não a falta de testes, que deixou o
    * bug passar.
    */

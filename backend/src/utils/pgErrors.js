@@ -1,5 +1,3 @@
-// src/utils/pgErrors.js
-
 /**
  * Traduz erro do Postgres para resposta HTTP.
  *
