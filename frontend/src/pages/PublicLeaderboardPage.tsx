@@ -6,6 +6,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { Spinner } from '../components/ui/Spinner';
 import { useChampionship } from '../hooks/useChampionships';
 import { useLeaderboard } from '../hooks/useLeaderboard';
+import { categoriasComEquipe } from '../lib/categorias';
 import { getErrorMessage } from '../lib/errors';
 
 export function PublicLeaderboardPage() {
@@ -41,7 +42,7 @@ export function PublicLeaderboardPage() {
           >
             Todas
           </button>
-          {championship.data.categories.map((category) => (
+          {categoriasComEquipe(championship.data.categories).map((category) => (
             <button
               key={category.id}
               onClick={() => setCategoryFilter(category.id)}

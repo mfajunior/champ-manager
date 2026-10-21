@@ -29,6 +29,7 @@ export function HeatGeneratorForm({
   const [error, setError] = useState<string | null>(null);
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [orderByStandings, setOrderByStandings] = useState(false);
+  const [groupByCategory, setGroupByCategory] = useState(false);
   const generateHeats = useGenerateHeats(workoutId);
 
   if (championship.lanes_per_heat === null) {
@@ -43,7 +44,11 @@ export function HeatGeneratorForm({
   const runGenerate = async (force: boolean) => {
     setError(null);
     try {
-      await generateHeats.mutateAsync({ force, order_by_standings: orderByStandings });
+      await generateHeats.mutateAsync({
+        force,
+        order_by_standings: orderByStandings,
+        group_by_category: groupByCategory,
+      });
       setConfirmMessage(null);
       onGenerated();
     } catch (err) {
@@ -83,6 +88,26 @@ export function HeatGeneratorForm({
             baterias — a decisão fica pro fim, na frente de todo mundo. Sem marcar, a
             ordem é a de cadastro das equipes. Na primeira prova não muda nada: ainda
             não existe colocação.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-2 border border-border px-3 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={groupByCategory}
+          onChange={(e) => setGroupByCategory(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Separar as baterias por categoria
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Cada bateria com uma categoria só — todos na mesma bateria fazem a
+            mesma variante, o que facilita briefing e aquecimento. Em troca sai
+            mais bateria: cada categoria arredonda a própria sobra para cima, e
+            cada bateria a mais acrescenta uma duração e uma transição ao
+            cronograma. Sem marcar, a raia que sobra de uma categoria é
+            preenchida pela próxima da sequência.
           </span>
         </span>
       </label>

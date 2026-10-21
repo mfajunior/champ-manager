@@ -39,3 +39,29 @@ const ABREVIACOES: Record<string, string> = {
 export function abreviarCategoria(nome: string): string {
   return ABREVIACOES[nome.trim().toLowerCase()] ?? nome;
 }
+
+/**
+ * Esconde a categoria que não tem nenhuma equipe inscrita.
+ *
+ * O ALTIORA abriu cinco categorias e Iniciante Masculino não recebeu
+ * inscrição. Ela aparecia como botão de filtro no placar e nas provas, e como
+ * campo de variante na tela do organizador — sempre levando a uma lista vazia.
+ *
+ * O critério é o `teams_count` que GET /api/championships/:id já devolve, e a
+ * categoria NÃO é apagada do banco: inscreveu-se alguém, ela volta sozinha.
+ * Apagar exigiria migration, cuidar da cascata de variantes e não teria como
+ * desfazer no dia do evento.
+ *
+ * `teams_count` é opcional no tipo porque o POST de campeonato devolve as
+ * categorias recém-criadas sem a contagem. Daí o teste ser `!== 0` e não
+ * `> 0`: contagem ausente mostra a categoria. Esconder por falta de dado seria
+ * pior do que mostrar uma categoria vazia.
+ *
+ * NÃO use isto no cadastro de equipe: lá a lista precisa de todas as
+ * categorias, senão a primeira equipe de uma categoria vazia nunca poderia
+ * ser cadastrada — a categoria estaria escondida exatamente por ainda não ter
+ * equipe.
+ */
+export function categoriasComEquipe<T extends { teams_count?: number }>(categorias: T[]): T[] {
+  return categorias.filter((c) => c.teams_count !== 0);
+}

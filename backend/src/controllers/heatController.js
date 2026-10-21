@@ -360,7 +360,7 @@ exports.generate = async (req, res, next) => {
 
   try {
     const { workout_id } = req.params;
-    const { force = false, order_by_standings = false } = req.body;
+    const { force = false, order_by_standings = false, group_by_category = false } = req.body;
 
     const workout = await queryOne(
       'SELECT id, championship_id, workout_number, name FROM workouts WHERE id = $1',
@@ -509,17 +509,18 @@ exports.generate = async (req, res, next) => {
       return placeB - placeA; // place maior = pior colocado = compete antes
     };
 
-    // Lista achatada equipe-a-equipe, já na ordem final de disputa.
-    const assignments = [];
-    for (const category of categories) {
+    // Um grupo por categoria, cada um já na ordem final de disputa. A lista
+    // achatada sai daqui — guardar os grupos é o que permite as duas formas de
+    // montar bateria mais abaixo sem ordenar duas vezes.
+    const porCategoria = categories.map((category) => {
       const equipes = teamsByCategory[category.id] || [];
       if (placePorEquipe) {
         equipes.sort(doPiorParaOMelhor);
       }
-      for (const team of equipes) {
-        assignments.push({ team, category });
-      }
-    }
+      return equipes.map((team) => ({ team, category }));
+    });
+
+    const assignments = porCategoria.flat();
 
     // Time cap por categoria PRESENTE nesta prova — usado só pra saber quanto
     // tempo cada bateria dura (a bateria só termina quando o cap da
@@ -563,7 +564,31 @@ exports.generate = async (req, res, next) => {
       });
     }
 
-    const chunks = chunkIntoHeats(assignments, lanes);
+    // BATERIA MISTA OU BATERIA DE UMA CATEGORIA SÓ
+    //
+    // Padrão (group_by_category ausente ou false): o comportamento desde a
+    // migration 005 — a lista das categorias inteira é cortada de uma vez, e a
+    // raia que sobra de uma categoria é preenchida pela categoria seguinte.
+    // Dá o MENOR número de baterias possível, que é o que encurta o evento.
+    //
+    // Com group_by_category: cada categoria é cortada separadamente, então
+    // nenhuma bateria mistura categorias. Custa bateria a mais — cada
+    // categoria passa a arredondar a sua própria sobra para cima — e cada
+    // bateria a mais é uma duração mais uma transição no cronograma. Em troca,
+    // todo mundo numa bateria executa a MESMA variante: mesmo briefing, mesmo
+    // aquecimento, e o público consegue comparar as raias entre si, o que não
+    // acontece quando as cargas e os movimentos diferem de raia para raia.
+    //
+    // A escolha é por geração, não do campeonato: dá para misturar na prova 1,
+    // onde ninguém pontuou, e separar na última, onde a comparação importa.
+    //
+    // Nos dois caminhos é o mesmo chunkIntoHeats que decide os tamanhos, então
+    // a propriedade de não deixar ninguém sozinho numa bateria vale igual —
+    // agora dentro de cada categoria.
+    const chunks =
+      group_by_category === true
+        ? porCategoria.filter((grupo) => grupo.length > 0).flatMap((grupo) => chunkIntoHeats(grupo, lanes))
+        : chunkIntoHeats(assignments, lanes);
 
     const heatPlans = chunks.map((chunk) => {
       const categoryIds = [...new Set(chunk.map((a) => a.category.id))];
