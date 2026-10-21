@@ -194,8 +194,17 @@ const eligibleTeams = async (req, res, next) => {
       });
     }
 
+    // Só categoria com equipe inscrita. O mesmo critério que
+    // heatController.generate usa para montar as baterias: categoria vazia não
+    // disputa, então corte nela não decide nada e na tela só rendia uma linha
+    // de "0 equipes, 0 classificadas". Não é filtro cosmético — é manter esta
+    // tela mostrando o mesmo conjunto que a geração de baterias considera.
     const categorias = await queryAll(
-      'SELECT id, name FROM categories WHERE championship_id = $1 ORDER BY id ASC',
+      `SELECT c.id, c.name
+         FROM categories c
+        WHERE c.championship_id = $1
+          AND EXISTS (SELECT 1 FROM teams t WHERE t.category_id = c.id)
+        ORDER BY c.id ASC`,
       [prova.championship_id]
     );
 
