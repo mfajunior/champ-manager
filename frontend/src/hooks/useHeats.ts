@@ -23,6 +23,9 @@ interface GenerateHeatsInput {
   // Ordena as equipes de cada categoria pela colocação atual, do pior pro
   // melhor — ver heatController.generate. Sem ele, a ordem é a de cadastro.
   order_by_standings?: boolean;
+  // Cada bateria com uma categoria só, em vez de preencher a raia que sobra
+  // com a categoria seguinte. Custa bateria a mais; ver heatController.generate.
+  group_by_category?: boolean;
 }
 
 export function useGenerateHeats(workoutId: number) {

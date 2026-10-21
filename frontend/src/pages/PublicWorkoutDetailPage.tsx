@@ -6,6 +6,7 @@ import { Spinner } from '../components/ui/Spinner';
 import { useChampionship } from '../hooks/useChampionships';
 import { useWorkout } from '../hooks/useWorkouts';
 import { SCORING_TYPE_LABELS, formatSecondsAsClock } from '../lib/scoring';
+import { categoriasComEquipe } from '../lib/categorias';
 import { getErrorMessage } from '../lib/errors';
 
 // Detalhe de uma prova, só leitura: o texto de cada variante (o WOD em si,
@@ -41,7 +42,8 @@ export function PublicWorkoutDetailPage() {
     );
   }
 
-  const categories = championship.data.categories ?? [];
+  // Categoria sem equipe não vira filtro nem variante aqui (ver lib/categorias).
+  const categories = categoriasComEquipe(championship.data.categories ?? []);
   const variantsByCategory = new Map(workout.data.variants?.map((v) => [v.category_id, v]) ?? []);
   // Mesmo padrão de filtro por categoria do placar público (PublicLeaderboardPage):
   // botões com o nome de cada categoria, "Todas" mostra tudo empilhado como

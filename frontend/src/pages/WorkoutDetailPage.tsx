@@ -10,6 +10,7 @@ import { WorkoutCutForm } from '../components/workouts/WorkoutCutForm';
 import { WorkoutVariantEditor } from '../components/workouts/WorkoutVariantEditor';
 import { useChampionship } from '../hooks/useChampionships';
 import { useUpdateWorkout, useWorkout } from '../hooks/useWorkouts';
+import { categoriasComEquipe } from '../lib/categorias';
 import { getErrorMessage } from '../lib/errors';
 import { SCORING_TYPE_LABELS } from '../lib/scoring';
 import type { ScoringType } from '../types';
@@ -43,7 +44,9 @@ export function WorkoutDetailPage() {
     return <ErrorBanner message={getErrorMessage(workout.error) || 'Prova não encontrada.'} />;
   }
 
-  const categories = championship.data.categories ?? [];
+  // Só as categorias com equipe ganham editor de variante: variante de
+  // categoria vazia não gera bateria nem pontua (ver lib/categorias).
+  const categories = categoriasComEquipe(championship.data.categories ?? []);
   const variantsByCategory = new Map(workout.data.variants?.map((v) => [v.category_id, v]) ?? []);
 
   const handleScoringTypeChange = async (scoringType: ScoringType) => {
