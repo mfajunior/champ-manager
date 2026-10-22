@@ -126,12 +126,30 @@ describe('computeOffsets (encadeia em segundos, propaga null)', () => {
     expect(computeOffsets([], 60)).toEqual([]);
   });
 
-  // O intervalo (migration 013) entra como folga extra DEPOIS de uma bateria
-  // específica — a última da prova. Vem por bateria e não por prova porque é
-  // percorrendo a lista achatada que se sabe onde uma prova termina.
-  test('intervalo depois de uma bateria empurra todas as seguintes', () => {
-    // 2 baterias de 600s, transição 60s, e 1800s de intervalo depois da 1ª.
-    expect(computeOffsets([600, 600], 60, [1800, 0])).toEqual([0, 2460]);
+  // O intervalo (migration 013) entra DEPOIS de uma bateria específica — a
+  // última da prova. Vem por bateria e não por prova porque é percorrendo a
+  // lista achatada que se sabe onde uma prova termina.
+  //
+  // E ele SUBSTITUI a transição naquela emenda, não se soma a ela. A versão
+  // anterior somava as duas (o esperado aqui era 2460 = 600 + 60 + 1800), o
+  // que cobrava duas vezes o tempo de trocar as equipes de raia: o intervalo
+  // entre provas já contém essa troca.
+  test('intervalo SUBSTITUI a transição na última bateria da prova', () => {
+    // 2 baterias de 600s, transição 60s, 1800s de intervalo depois da 1ª.
+    // A 2ª começa em 600 + 1800 = 2400, não em 600 + 60 + 1800.
+    expect(computeOffsets([600, 600], 60, [1800, 0])).toEqual([0, 2400]);
+  });
+
+  test('intervalo menor que a transição ainda substitui (quem manda é o intervalo)', () => {
+    // Intervalo de 30s com transição de 60s: a 2ª começa em 630, não em 690.
+    // Configurar intervalo curto é uma decisão do organizador, não um piso.
+    expect(computeOffsets([600, 600], 60, [30, 0])).toEqual([0, 630]);
+  });
+
+  test('sem intervalo, a virada de prova continua custando a transição', () => {
+    // extraAfter zerado é indistinguível de "todas as baterias da mesma
+    // prova": o separador é a transição nos dois casos.
+    expect(computeOffsets([600, 600], 60, [0, 0])).toEqual([0, 660]);
   });
 
   test('sem intervalo, o resultado é idêntico ao de antes', () => {
