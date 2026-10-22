@@ -160,9 +160,16 @@ describe('Agenda das baterias', () => {
     expect((await horariosDa(provaUmId))[1]).toBe('09:42');
   });
 
-  test('intervalo depois da prova 1 empurra a prova 2, e só ela', async () => {
+  // Estes dois afirmam o HORÁRIO, não a diferença entre dois horários. A
+  // versão anterior media só a diferença ("a prova 2 andou 60 min") e por isso
+  // passava mesmo com a transição somada em cima do intervalo: o erro de 2 min
+  // existia nos dois lados da subtração e se cancelava. Foi assim que a soma
+  // dupla sobreviveu à suíte.
+  const paraMinutos = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
+  const DURACAO_DA_BATERIA = 10; // minutos (time cap configurado no beforeAll)
+
+  test('com intervalo, a prova 2 começa no fim da prova 1 mais o intervalo — sem transição', async () => {
     const antesProvaUm = await horariosDa(provaUmId);
-    const [antesProvaDois] = await horariosDa(provaDoisId);
 
     await request(app)
       .put(`/api/workouts/${provaUmId}`)
@@ -172,23 +179,27 @@ describe('Agenda das baterias', () => {
     // A prova que tem o intervalo não se move: o intervalo é DEPOIS dela.
     expect(await horariosDa(provaUmId)).toEqual(antesProvaUm);
 
-    // A seguinte anda exatamente uma hora.
-    const [depoisProvaDois] = await horariosDa(provaDoisId);
-    const paraMinutos = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
-    expect(paraMinutos(depoisProvaDois) - paraMinutos(antesProvaDois)).toBe(60);
+    const fimDaProvaUm =
+      paraMinutos(antesProvaUm[antesProvaUm.length - 1]) + DURACAO_DA_BATERIA;
+    const [inicioDaProvaDois] = await horariosDa(provaDoisId);
+
+    // Exatamente o intervalo. Somar também a transição cobraria duas vezes o
+    // tempo de trocar as equipes de raia, que já está dentro do intervalo.
+    expect(paraMinutos(inicioDaProvaDois)).toBe(fimDaProvaUm + 60);
   });
 
-  test('remover o intervalo devolve a prova 2 ao horário anterior', async () => {
-    const [comIntervalo] = await horariosDa(provaDoisId);
-
+  test('sem intervalo, a virada de prova volta a custar a transição', async () => {
     await request(app)
       .put(`/api/workouts/${provaUmId}`)
       .set(auth())
       .send({ break_after_seconds: null });
 
-    const [semIntervalo] = await horariosDa(provaDoisId);
-    const paraMinutos = (hhmm) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
-    expect(paraMinutos(comIntervalo) - paraMinutos(semIntervalo)).toBe(60);
+    const provaUm = await horariosDa(provaUmId);
+    const fimDaProvaUm = paraMinutos(provaUm[provaUm.length - 1]) + DURACAO_DA_BATERIA;
+    const [inicioDaProvaDois] = await horariosDa(provaDoisId);
+
+    // transition_seconds está em 120s neste ponto da suíte.
+    expect(paraMinutos(inicioDaProvaDois)).toBe(fimDaProvaUm + 2);
   });
 
   test('apagar a prova 1 faz a prova 2 subir para o início do dia', async () => {

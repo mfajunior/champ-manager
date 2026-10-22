@@ -22,8 +22,9 @@
  * A agenda inteira do campeonato é recalculada do zero a cada mudança, na
  * ordem das provas (workout_number) e das baterias dentro de cada prova. A
  * prova 1 começa na hora de início configurada; cada bateria seguinte começa
- * quando a anterior termina, mais o tempo de transição — inclusive na virada
- * de uma prova para a outra.
+ * quando a anterior termina, mais o tempo de transição. Na virada de uma prova
+ * para a outra, quando a prova tem intervalo configurado, o que vale é o
+ * intervalo em vez da transição — ver computeOffsets.
  *
  * Recalcular tudo, em vez de emendar a partir da última âncora, é o que torna
  * o resultado independente da ORDEM em que o organizador gerou as provas. A
@@ -62,11 +63,28 @@ const computeOffsets = (durations, transitionSeconds, extraAfter = []) => {
     const offset = cursor;
 
     if (typeof duration === 'number' && Number.isFinite(duration)) {
-      // extraAfter[i] é o intervalo configurado na prova, somado depois da
-      // ÚLTIMA bateria dela (migration 013). Vem por bateria e não por prova
-      // porque é aqui, percorrendo a lista achatada, que se sabe onde uma
-      // prova termina e a outra começa.
-      cursor += duration + transitionSeconds + (extraAfter[i] || 0);
+      // O QUE SEPARA ESTA BATERIA DA PRÓXIMA
+      //
+      // Entre baterias da MESMA prova é a transição: o tempo de tirar uma
+      // equipe da raia e botar a seguinte.
+      //
+      // Depois da ÚLTIMA bateria de uma prova com intervalo configurado
+      // (extraAfter[i], migration 013) é o intervalo, e SÓ ele. Somar os dois
+      // contava duas vezes o mesmo tempo de troca — o intervalo entre provas
+      // já existe para desmontar o cenário, explicar o WOD seguinte e
+      // reaquecer; a troca de raia está dentro dele, não antes dele.
+      //
+      // Prova SEM intervalo continua emendando por transição, inclusive na
+      // virada para a próxima prova: ali a única coisa que acontece de fato é
+      // trocar as equipes de raia.
+      //
+      // Isso também fecha uma inconsistência da tela: o banner de intervalo
+      // (HeatBreakBanner) desenha a faixa de "fim da última bateria" até
+      // "fim + intervalo". Com a transição somada por cima, a prova seguinte
+      // começava depois do fim que a faixa mostrava, e sobrava no cronograma
+      // um buraco que nada na tela explicava.
+      const intervalo = extraAfter[i] || 0;
+      cursor += duration + (intervalo > 0 ? intervalo : transitionSeconds);
     } else {
       interrompido = true;
     }
