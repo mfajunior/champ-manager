@@ -11,6 +11,7 @@
     "create-user": "node scripts/create-user.js",
     "smoke": "node scripts/smoke-seed.js",
     "seed": "node scripts/seed-evento.js",
+    "sync-equipes": "node scripts/sincronizar-equipes.js",
     "test": "jest",
     "test:handles": "jest --detectOpenHandles",
     "test:coverage": "jest --coverage"
