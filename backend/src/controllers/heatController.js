@@ -698,6 +698,121 @@ exports.generate = async (req, res, next) => {
   }
 };
 
+// DELETE /api/workouts/:workout_id/heats  (protegido)
+//
+// Apaga as baterias de UMA prova. Até aqui o único jeito de mexer em baterias
+// geradas era gerar de novo, que apaga e recria na mesma operação — não havia
+// como voltar ao estado "prova sem bateria". Gerar na prova errada não tinha
+// desfazer.
+//
+// POR QUE RECALCULA A AGENDA
+//
+// Apagar as baterias encurta a prova, e as provas seguintes têm que subir no
+// cronograma. Sem o rescheduleChampionship, elas ficariam nos horários antigos
+// e o dia abriria um buraco exatamente do tamanho da prova apagada — a mesma
+// classe de problema que motivou recalcular a agenda inteira em vez de emendar
+// a partir da última bateria (ver models/schedule.js).
+//
+// POR QUE O 409 EM VEZ DE APAGAR DIRETO
+//
+// results aponta para heat_teams, que aponta para heats: apagar a bateria leva
+// o resultado lançado com ela, em cascata. No dia do evento, com o cronômetro
+// correndo, um clique errado aqui custa os lançamentos da prova. O 409 devolve
+// a CONTAGEM de resultados em risco, para a tela poder dizer quantos — "tem
+// certeza?" sem número não ajuda ninguém a decidir.
+exports.clearByWorkout = async (req, res, next) => {
+  const client = await pool.connect();
+
+  try {
+    const { workout_id } = req.params;
+
+    // force pela QUERY STRING, não pelo corpo. DELETE com corpo é legal no
+    // HTTP mas mal suportado no caminho: há CDN e proxy que descartam o corpo
+    // de um DELETE em silêncio, e este sistema tem CDN na frente em produção.
+    // Um force perdido no caminho viraria um 409 que o organizador não
+    // consegue superar por mais que clique em confirmar.
+    //
+    // Na query string todo valor chega como texto, então 'true' é a forma
+    // esperada aqui — diferente do corpo do generate, onde `=== true` recusa
+    // a string de propósito. O corpo continua aceito para quem chamar a API
+    // direto, mas exigindo booleano de verdade.
+    const force = req.query.force === 'true' || req.body?.force === true;
+
+    const workout = await queryOne(
+      'SELECT id, championship_id, workout_number FROM workouts WHERE id = $1',
+      [workout_id]
+    );
+
+    if (!workout) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Prova não encontrada' },
+      });
+    }
+
+    const baterias = await queryOne(
+      'SELECT COUNT(id)::int AS total FROM heats WHERE workout_id = $1',
+      [workout_id]
+    );
+
+    // Já não havia bateria: 404 em vez de 200 silencioso, pelo mesmo motivo
+    // que remover um corte inexistente é 404 — quem chamou achava que havia
+    // algo ali, e saber disso vale mais que a resposta parecer bem-sucedida.
+    if (baterias.total === 0) {
+      return res.status(404).json({
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Esta prova não tem baterias geradas.',
+        },
+      });
+    }
+
+    const resultados = await queryOne(
+      `SELECT COUNT(r.id)::int AS total
+         FROM results r
+         JOIN heat_teams ht ON ht.id = r.heat_team_id
+         JOIN heats h ON h.id = ht.heat_id
+        WHERE h.workout_id = $1`,
+      [workout_id]
+    );
+
+    if (resultados.total > 0 && !force) {
+      return res.status(409).json({
+        error: {
+          code: 'RESULTS_EXIST',
+          message:
+            `Esta prova tem ${resultados.total} resultado(s) lançado(s). ` +
+            'Apagar as baterias apaga esses resultados junto. ' +
+            'Envie force: true se for mesmo isso que você quer.',
+        },
+        meta: { results_at_risk: resultados.total },
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // O trigger de DELETE em heats (migration 010) recalcula o placar sozinho,
+    // dentro desta transação. Nada a chamar aqui para isso.
+    await client.query('DELETE FROM heats WHERE workout_id = $1', [workout_id]);
+
+    await rescheduleChampionship(client, workout.championship_id);
+
+    await client.query('COMMIT');
+
+    res.status(200).json({
+      data: { workout_id: Number(workout_id), heats_deleted: baterias.total },
+      meta: {
+        message: `${baterias.total} bateria(s) apagada(s) da prova ${workout.workout_number}.`,
+        resultsDeleted: resultados.total,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    next(error);
+  } finally {
+    client.release();
+  }
+};
+
 // GET /api/workouts/:workout_id/heats  (público)
 // Uma bateria não pertence mais a uma categoria só — cada raia carrega a
 // categoria da equipe que está nela, não a bateria como um todo.

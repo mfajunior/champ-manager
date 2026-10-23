@@ -13,3 +13,53 @@
     @apply font-display uppercase tracking-wide;
   }
 }
+
+/* ---------------------------------------------------------------- IMPRESSÃO
+ *
+ * A folha de bateria (pages/PrintHeatsPage) é a única coisa deste app que vai
+ * ao papel. Três decisões aqui.
+ *
+ * PRETO NO BRANCO, SEMPRE. O app segue o tema do sistema, e o tema escuro
+ * imprime um fundo sólido que gasta um cartucho por folha e deixa o texto
+ * cinza em cima de cinza. O `color-adjust: exact` do navegador manteria as
+ * cores da tela; aqui é o contrário do que se quer.
+ *
+ * NENHUMA BATERIA CORTADA NO MEIO. `break-inside: avoid` na seção de cada
+ * bateria: antes de dividir a tabela entre duas folhas, o navegador empurra a
+ * bateria inteira para a página seguinte. Meia bateria numa folha é pior que
+ * uma folha com espaço sobrando, porque quem está chamando as equipes para a
+ * raia precisa das quatro raias no mesmo campo de visão.
+ *
+ * MARGEM DE PÁGINA EXPLÍCITA. Sem @page, cada navegador aplica a sua, e a
+ * folha sai diferente dependendo de onde foi impressa.
+ */
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  /* O body do app define fundo e cor pelo tema; na impressão os dois são
+     fixos. !important porque a classe utilitária do Tailwind no body ganharia
+     da regra por especificidade. */
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .bateria {
+    break-inside: avoid;
+    page-break-inside: avoid; /* navegador antigo */
+  }
+
+  /* Borda clara some no papel: a tabela precisa de linha visível para o olho
+     seguir a raia até o nome do atleta. */
+  .folha table th,
+  .folha table td {
+    border-color: #999999 !important;
+  }
+
+  .folha h1,
+  .folha h2 {
+    color: #000000 !important;
+  }
+}
