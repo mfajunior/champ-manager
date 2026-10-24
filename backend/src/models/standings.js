@@ -18,8 +18,13 @@ const { queryAll } = require('../config/database');
  *   ela está vazia mesmo com equipes cadastradas. Com LEFT JOIN, toda equipe
  *   inscrita aparece desde já.
  * - COALESCE em total_score/workouts_completed: sem linha no cache, 0 é a
- *   resposta honesta. `place` NÃO recebe COALESCE de propósito — null ali
- *   significa "ainda não pontuou", e 0 fingiria uma colocação que não existe.
+ *   resposta honesta. `place` NÃO recebe COALESCE de propósito — e cuidado com
+ *   o que o null dele significa: é "este campeonato ainda não foi recalculado
+ *   nenhuma vez", não "esta equipe não pontuou". Depois do primeiro disparo do
+ *   trigger toda equipe tem linha em team_standings e toda equipe tem place,
+ *   inclusive quem não competiu — recalculate_standings ordena por
+ *   (workouts_completed = 0) primeiro, então quem não competiu vai para o fim
+ *   da categoria, mas numerado. 0 aqui fingiria uma colocação que não existe.
  * - A ordenação empurra place null para o fim de cada categoria e desempata
  *   por nome, para a lista não dançar entre dois carregamentos.
  *

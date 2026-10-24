@@ -169,9 +169,20 @@ describe('Heats — limpar as baterias de uma prova (integração com banco real
     expect(await baterias(provaUmId)).toHaveLength(0);
 
     // O resultado foi em cascata com a raia, e o trigger de DELETE em heats
-    // (migration 010) refez o placar: ninguém mais tem colocação.
+    // (migration 010) refez o placar.
+    //
+    // O que NÃO dá para afirmar aqui: que place voltou a null.
+    // recalculate_standings numera TODA equipe cadastrada — quem não competiu
+    // vai para o fim da categoria (o ORDER BY começa por workouts_completed =
+    // 0), mas recebe colocação. place null só existe antes do primeiro
+    // recálculo do campeonato, quando a equipe ainda não tem linha em
+    // team_standings.
+    //
+    // O que prova o recálculo é a prova zerar: ninguém com prova completada e
+    // ninguém com soma de colocações.
     const depois = await request(app).get(`/api/leaderboard?championship_id=${championshipId}`);
-    expect(depois.body.data.every((l) => l.place === null)).toBe(true);
+    expect(depois.body.data.every((l) => l.workouts_completed === 0)).toBe(true);
+    expect(depois.body.data.every((l) => l.total_score === 0)).toBe(true);
   });
 
   test('force só vale como a string "true" na query, não qualquer valor', async () => {
