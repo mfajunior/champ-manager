@@ -114,13 +114,27 @@ export function PrintHeatsPage() {
                 </span>
               </div>
 
-              <table className="w-full border-collapse">
+              {/* table-fixed, e não só o colgroup. Cada bateria é uma <table>
+                  separada (heats.data.map), então no algoritmo automático o
+                  navegador dimensiona as colunas pelo conteúdo DAQUELA tabela
+                  — e "Atleta 2" cai num lugar diferente em cada bateria, que
+                  é o que a folha mostrava. Com table-fixed as larguras saem do
+                  colgroup e valem igual em todas. Mesma razão já registrada em
+                  PublicHeatsList e StandingsTable.
+
+                  Todas em porcentagem, somando exatamente 100%: misturar px
+                  com % deixaria uma sobra para o navegador distribuir, e a
+                  folha impressa tem largura diferente da tela. Em A4 com 12mm
+                  de margem isso dá, por coluna: 11mm para a raia, 45mm para a
+                  equipe, 22mm para a categoria abreviada e 54mm para cada
+                  atleta. */}
+              <table className="w-full table-fixed border-collapse">
                 <colgroup>
-                  <col className="w-12" />
-                  <col className="w-1/4" />
-                  <col className="w-20" />
-                  <col />
-                  <col />
+                  <col className="w-[6%]" />
+                  <col className="w-[24%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[29%]" />
+                  <col className="w-[29%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b border-border text-left text-[10px] font-bold uppercase tracking-widest">
@@ -137,12 +151,12 @@ export function PrintHeatsPage() {
                       <td className="py-1.5 pr-2 text-sm font-bold tabular-nums">
                         {lane.lane_number}
                       </td>
-                      <td className="py-1.5 pr-2 text-sm font-semibold">{lane.team_name}</td>
+                      <td className="break-words py-1.5 pr-2 text-sm font-semibold">{lane.team_name}</td>
                       <td className="py-1.5 pr-2 text-[10px] font-bold uppercase tracking-wider">
                         {abreviarCategoria(lane.category_name)}
                       </td>
-                      <td className="py-1.5 pr-2 text-sm">{lane.athlete_1 ?? ''}</td>
-                      <td className="py-1.5 text-sm">{lane.athlete_2 ?? ''}</td>
+                      <td className="break-words py-1.5 pr-2 text-sm">{lane.athlete_1 ?? ''}</td>
+                      <td className="break-words py-1.5 text-sm">{lane.athlete_2 ?? ''}</td>
                     </tr>
                   ))}
                 </tbody>
