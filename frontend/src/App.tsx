@@ -11,6 +11,7 @@ import { PublicHeatsPage } from './pages/PublicHeatsPage';
 import { PublicLeaderboardPage } from './pages/PublicLeaderboardPage';
 import { PublicWorkoutDetailPage } from './pages/PublicWorkoutDetailPage';
 import { PublicWorkoutsPage } from './pages/PublicWorkoutsPage';
+import { PrintHeatsPage } from './pages/PrintHeatsPage';
 import { WorkoutDetailPage } from './pages/WorkoutDetailPage';
 
 export function App() {
@@ -45,6 +46,12 @@ export function App() {
             <Route path="/admin" element={<ChampionshipsPage />} />
             <Route path="/admin/campeonatos/:id" element={<ChampionshipDetailPage />} />
             <Route path="/admin/campeonatos/:id/provas/:workoutId" element={<WorkoutDetailPage />} />
+            {/* Folha de impressão das baterias. Dentro do ProtectedLayout de
+                propósito: é o que a torna exclusiva do organizador. */}
+            <Route
+              path="/admin/campeonatos/:id/provas/:workoutId/baterias/impressao"
+              element={<PrintHeatsPage />}
+            />
           </Route>
 
           <Route path="*" element={<NotFoundPage />} />

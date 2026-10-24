@@ -5,7 +5,10 @@ import { ErrorBanner } from '../ui/ErrorBanner';
 import { Modal } from '../ui/Modal';
 import { Spinner } from '../ui/Spinner';
 import { WarningBanner } from '../ui/WarningBanner';
-import { useHeats, useMoveLane, useSwapLanes } from '../../hooks/useHeats';
+import { Link } from 'react-router-dom';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { ApiError } from '../../lib/api';
+import { useClearHeats, useHeats, useMoveLane, useSwapLanes } from '../../hooks/useHeats';
 import { useEligibleTeams } from '../../hooks/useWorkoutCut';
 import { getErrorMessage } from '../../lib/errors';
 import type { Championship, HeatLane, Workout } from '../../types';
@@ -36,6 +39,11 @@ export function AdminHeatsPanel({
   // tela é operada durante a prova para lançar resultado — botão de mover
   // equipe ao lado do de lançar é convite a clicar errado com o cronômetro
   // correndo.
+  // Limpar baterias: confirmação em dois passos quando há resultado lançado,
+  // porque apagar bateria apaga o resultado dela em cascata.
+  const [confirmarLimpeza, setConfirmarLimpeza] = useState<string | null>(null);
+  const [erroLimpeza, setErroLimpeza] = useState<string | null>(null);
+
   const [remanejando, setRemanejando] = useState(false);
   const [selecionada, setSelecionada] = useState<HeatLane | null>(null);
   const [erroRemanejo, setErroRemanejo] = useState<string | null>(null);
@@ -60,11 +68,31 @@ export function AdminHeatsPanel({
   };
 
   const heats = useHeats(workoutId ?? NaN);
+  const limpar = useClearHeats(workoutId ?? NaN);
+
+  const limparBaterias = async (force: boolean) => {
+    setErroLimpeza(null);
+    try {
+      await limpar.mutateAsync({ force });
+      setConfirmarLimpeza(null);
+    } catch (err) {
+      // Mesmo padrão do gerador: RESULTS_EXIST é o único erro que vira
+      // pergunta em vez de mensagem. A mensagem do backend já traz quantos
+      // resultados estão em risco.
+      if (err instanceof ApiError && err.code === 'RESULTS_EXIST') {
+        setConfirmarLimpeza(err.message);
+      } else {
+        setErroLimpeza(getErrorMessage(err));
+      }
+    }
+  };
   // Só para saber se a escalação montada ainda bate com a classificação.
   // Quando a prova não tem corte, o backend devolve todas as equipes e
   // outdated fica falso — o aviso simplesmente não aparece.
   const classificados = useEligibleTeams(workoutId ?? NaN, workoutId !== null);
   const selectedWorkout = workouts.find((w) => w.id === workoutId);
+  // Imprimir e limpar só fazem sentido com bateria gerada.
+  const temBaterias = (heats.data?.length ?? 0) > 0;
 
   return (
     <div>
@@ -93,6 +121,23 @@ export function AdminHeatsPanel({
             >
               {remanejando ? 'Sair do remanejamento' : 'Remanejar raias'}
             </button>
+            {temBaterias && (
+              <>
+                <Link
+                  to={`/admin/campeonatos/${championship.id}/provas/${selectedWorkout.id}/baterias/impressao`}
+                  className="text-xs font-bold uppercase tracking-wider text-muted-foreground hover:opacity-70"
+                >
+                  Imprimir
+                </Link>
+                <button
+                  onClick={() => limparBaterias(false)}
+                  disabled={limpar.isPending}
+                  className="text-xs font-bold uppercase tracking-wider text-destructive hover:opacity-70 disabled:opacity-40"
+                >
+                  {limpar.isPending ? 'Limpando...' : 'Limpar baterias'}
+                </button>
+              </>
+            )}
             <button
               onClick={() => setIsGeneratingHeats(true)}
               className="text-xs font-bold uppercase tracking-wider text-brand hover:opacity-70"
@@ -111,6 +156,23 @@ export function AdminHeatsPanel({
         <div className="mb-4">
           <WarningBanner message="A escalação destas baterias não bate mais com a classificação atual. Abra 'Configurar baterias' e gere de novo para alinhar." />
         </div>
+      )}
+
+      {erroLimpeza && (
+        <div className="mb-4">
+          <ErrorBanner message={erroLimpeza} />
+        </div>
+      )}
+
+      {confirmarLimpeza && (
+        <ConfirmDialog
+          title="Apagar as baterias desta prova?"
+          message={confirmarLimpeza}
+          confirmLabel="Apagar mesmo assim"
+          isLoading={limpar.isPending}
+          onCancel={() => setConfirmarLimpeza(null)}
+          onConfirm={() => limparBaterias(true)}
+        />
       )}
 
       {heats.isLoading && <Spinner label="Carregando baterias..." />}

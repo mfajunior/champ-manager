@@ -40,6 +40,29 @@ export function useGenerateHeats(workoutId: number) {
 }
 
 /**
+ * Apagar as baterias de uma prova.
+ *
+ * Invalida também o leaderboard: apagar bateria apaga em cascata o resultado
+ * lançado nela, e o trigger de DELETE recalcula o placar no banco. Sem essa
+ * invalidação a tela continuaria mostrando pontos de resultados que já não
+ * existem.
+ */
+export function useClearHeats(workoutId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { force?: boolean } = {}) =>
+      (await api.delete<{ workout_id: number; heats_deleted: number }>(
+        `/api/workouts/${workoutId}/heats${input.force ? '?force=true' : ''}`
+      )).data,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: heatKeys.byWorkout(workoutId) });
+      queryClient.invalidateQueries({ queryKey: ['leaderboard'] });
+      queryClient.invalidateQueries({ queryKey: ['heats'] });
+    },
+  });
+}
+
+/**
  * Remanejamento manual de raias (migration 016).
  *
  * Duas operações em vez de uma porque são situações diferentes: TROCAR quando

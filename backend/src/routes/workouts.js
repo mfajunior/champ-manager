@@ -21,6 +21,9 @@ const { cacheDeLeitura } = require('../middleware/cacheLeitura');
 // POST /api/workouts/:workout_id/heats - Gerar baterias de uma categoria (protegido)
 router.post('/:workout_id/heats', authMiddleware, heatController.generate);
 
+// DELETE /api/workouts/:workout_id/heats - Apagar as baterias da prova (protegido)
+router.delete('/:workout_id/heats', authMiddleware, heatController.clearByWorkout);
+
 // GET /api/workouts/:workout_id/heats - Listar baterias (público)
 // 10 s: esta resposta traz as raias COM o resultado de cada uma embutido
 // (place, raw_value, place_2), então ela muda a cada lançamento — 87 vezes no
