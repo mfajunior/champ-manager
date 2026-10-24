@@ -5,7 +5,7 @@ import { ErrorBanner } from '../components/ui/ErrorBanner';
 import { Spinner } from '../components/ui/Spinner';
 import { useChampionship } from '../hooks/useChampionships';
 import { useWorkout } from '../hooks/useWorkouts';
-import { SCORING_TYPE_LABELS, formatSecondsAsClock } from '../lib/scoring';
+import { SCORING_TYPE_LABELS } from '../lib/scoring';
 import { categoriasComEquipe } from '../lib/categorias';
 import { getErrorMessage } from '../lib/errors';
 
@@ -103,14 +103,22 @@ export function PublicWorkoutDetailPage() {
                 {category.name}
               </h2>
               {variant ? (
-                <>
-                  <p className="mt-2 whitespace-pre-wrap text-sm">{variant.description}</p>
-                  {variant.time_cap_seconds && (
-                    <p className="mt-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Time cap: {formatSecondsAsClock(String(variant.time_cap_seconds))}
-                    </p>
-                  )}
-                </>
+                /* O time cap NÃO aparece aqui, embora a variante tenha o
+                   campo. O organizador escreve o WOD inteiro na descrição e
+                   põe o cap na primeira linha, junto do formato ("FOR TIME |
+                   TIME CAP 14 MIN") — é assim que um WOD é escrito no quadro
+                   do box. Repetir o número embaixo mostrava a mesma
+                   informação duas vezes, em dois formatos diferentes (14 MIN
+                   e 14:00), que é pior do que não mostrar: quem lê para e
+                   confere se são a mesma coisa.
+
+                   O campo continua existindo e continua obrigatório na
+                   prática — é dele que sai a duração da bateria no cronograma
+                   (ver heatController.generate). Só não é exibido aqui. Na
+                   tela do organizador ele continua visível, porque lá o
+                   número tem função operacional: é o que ele confere antes de
+                   gerar as baterias. */
+                <p className="mt-2 whitespace-pre-wrap text-sm">{variant.description}</p>
               ) : (
                 <p className="mt-2 text-sm text-muted-foreground">
                   Ainda não definida para esta categoria.
