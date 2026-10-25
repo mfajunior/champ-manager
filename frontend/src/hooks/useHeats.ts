@@ -26,6 +26,9 @@ interface GenerateHeatsInput {
   // Cada bateria com uma categoria só, em vez de preencher a raia que sobra
   // com a categoria seguinte. Custa bateria a mais; ver heatController.generate.
   group_by_category?: boolean;
+  // Cria as baterias com horário e SEM escalação, para a prova ganhar lugar no
+  // cronograma antes de as equipes serem definidas. Ver heatController.generate.
+  schedule_only?: boolean;
 }
 
 export function useGenerateHeats(workoutId: number) {

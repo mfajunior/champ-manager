@@ -30,6 +30,7 @@ export function HeatGeneratorForm({
   const [confirmMessage, setConfirmMessage] = useState<string | null>(null);
   const [orderByStandings, setOrderByStandings] = useState(false);
   const [groupByCategory, setGroupByCategory] = useState(false);
+  const [scheduleOnly, setScheduleOnly] = useState(false);
   const generateHeats = useGenerateHeats(workoutId);
 
   if (championship.lanes_per_heat === null) {
@@ -48,6 +49,7 @@ export function HeatGeneratorForm({
         force,
         order_by_standings: orderByStandings,
         group_by_category: groupByCategory,
+        schedule_only: scheduleOnly,
       });
       setConfirmMessage(null);
       onGenerated();
@@ -108,6 +110,26 @@ export function HeatGeneratorForm({
             cada bateria a mais acrescenta uma duração e uma transição ao
             cronograma. Sem marcar, a raia que sobra de uma categoria é
             preenchida pela próxima da sequência.
+          </span>
+        </span>
+      </label>
+
+      <label className="flex items-start gap-2 border border-border px-3 py-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={scheduleOnly}
+          onChange={(e) => setScheduleOnly(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span>
+          Só o cronograma, sem escalar equipes
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Cria as baterias com horário e as raias em branco, para a prova
+            entrar no cronograma antes de as equipes serem definidas — útil nas
+            provas que dependem do corte da anterior. Se a prova tem corte
+            configurado, a conta usa o top N configurado. Depois é só gerar de
+            novo, desmarcado, para escalar. Prova que já tem baterias é
+            recusada: limpe antes.
           </span>
         </span>
       </label>

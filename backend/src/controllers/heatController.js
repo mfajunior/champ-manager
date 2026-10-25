@@ -360,7 +360,12 @@ exports.generate = async (req, res, next) => {
 
   try {
     const { workout_id } = req.params;
-    const { force = false, order_by_standings = false, group_by_category = false } = req.body;
+    const {
+      force = false,
+      order_by_standings = false,
+      group_by_category = false,
+      schedule_only = false,
+    } = req.body;
 
     const workout = await queryOne(
       'SELECT id, championship_id, workout_number, name FROM workouts WHERE id = $1',
@@ -433,6 +438,129 @@ exports.generate = async (req, res, next) => {
       (acc[team.category_id] ||= []).push(team);
       return acc;
     }, {});
+
+    // SÓ O CRONOGRAMA: BATERIAS COM HORÁRIO E SEM ESCALAÇÃO
+    //
+    // A prova 4 só tem equipes definidas depois que a 3 termina e o corte é
+    // aplicado — mas o organizador precisa dizer ao box a que horas ela
+    // começa, e a plateia precisa saber quando voltar. Até aqui a única forma
+    // de a prova ganhar horário era gerar a escalação, que não existe ainda.
+    //
+    // Estas baterias são reais: linhas em `heats`, com duração e horário,
+    // entrando na agenda do campeonato como qualquer outra. O que falta nelas
+    // é `heat_teams`. Não é estimativa exibida na tela — é o cronograma de
+    // verdade, com a escalação pendente.
+    //
+    // O CORTE AQUI É O CONFIGURADO, NÃO O APURADO
+    //
+    // eligible_teams_for_workout responde "quem passou", e isso depende de
+    // resultados que ainda não existem quando o cronograma é montado. O que
+    // se sabe de antemão é o keep_top_n que o organizador configurou: "top 6
+    // por categoria" dá 6 por categoria, limitado ao número de inscritas.
+    // Corte sem linha nenhuma significa que todo mundo disputa.
+    if (schedule_only === true) {
+      const existentes = await queryOne(
+        'SELECT COUNT(id)::int AS total FROM heats WHERE workout_id = $1',
+        [workout_id]
+      );
+
+      // Não substitui escalação por horário: quem quiser refazer limpa as
+      // baterias primeiro (DELETE /api/workouts/:id/heats), onde a perda de
+      // resultado é avisada com o número de lançamentos em risco.
+      if (existentes.total > 0) {
+        return res.status(409).json({
+          error: {
+            code: 'HEATS_EXIST',
+            message:
+              `Esta prova já tem ${existentes.total} bateria(s) gerada(s). ` +
+              'O cronograma só é montado em prova sem baterias — limpe as baterias desta prova antes.',
+          },
+          meta: { existing_heats: existentes.total },
+        });
+      }
+
+      const cortes = await queryAll(
+        'SELECT category_id, keep_top_n FROM workout_cuts WHERE workout_id = $1',
+        [workout_id]
+      );
+      const cortePadrao = cortes.find((c) => c.category_id === null)?.keep_top_n ?? null;
+      const cortePorCategoria = new Map(
+        cortes.filter((c) => c.category_id !== null).map((c) => [c.category_id, c.keep_top_n])
+      );
+
+      const previstas = categories
+        .map((category) => {
+          const inscritas = (teamsByCategory[category.id] || []).length;
+          const teto = cortePorCategoria.get(category.id) ?? cortePadrao;
+          // Corte maior que o número de inscritas não cria equipe nenhuma.
+          const disputam = teto === null ? inscritas : Math.min(teto, inscritas);
+          return { category, disputam };
+        })
+        .filter((c) => c.disputam > 0);
+
+      if (previstas.length === 0) {
+        return res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Nenhuma equipe disputaria esta prova com o corte configurado.',
+          },
+        });
+      }
+
+      // Vagas, não equipes: o chunkIntoHeats só precisa saber QUANTAS entram e
+      // de que categoria, para distribuir do mesmo jeito que distribuiria a
+      // escalação real. Usar a mesma função é o que faz o cronograma previsto
+      // e as baterias de verdade darem o mesmo número de baterias.
+      const vagas = (quantas, category) => Array.from({ length: quantas }, () => ({ category }));
+
+      const chunksPrevistos =
+        group_by_category === true
+          ? previstas.flatMap(({ category, disputam }) =>
+              chunkIntoHeats(vagas(disputam, category), lanes)
+            )
+          : chunkIntoHeats(
+              previstas.flatMap(({ category, disputam }) => vagas(disputam, category)),
+              lanes
+            );
+
+      const variantesDaProva = await queryAll(
+        'SELECT category_id, time_cap_seconds FROM workout_variants WHERE workout_id = $1',
+        [workout_id]
+      );
+      const capPorCategoria = new Map(variantesDaProva.map((v) => [v.category_id, v.time_cap_seconds]));
+
+      await client.query('BEGIN');
+
+      const criadas = [];
+      for (let i = 0; i < chunksPrevistos.length; i += 1) {
+        const chunk = chunksPrevistos[i];
+        const categoriaIds = [...new Set(chunk.map((v) => v.category.id))];
+        const caps = categoriaIds.map((id) => capPorCategoria.get(id));
+        const temTodos = caps.every((c) => typeof c === 'number');
+
+        // eslint-disable-next-line no-await-in-loop
+        const criada = await client.query(
+          `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds, planned_lanes)
+           VALUES ($1, $2, NULL, $3, $4)
+           RETURNING id, workout_id, heat_number, duration_seconds, planned_lanes, status`,
+          [workout_id, i + 1, temTodos ? Math.max(...caps) : null, chunk.length]
+        );
+        criadas.push(criada.rows[0]);
+      }
+
+      await rescheduleChampionship(client, workout.championship_id);
+      await client.query('COMMIT');
+
+      return res.status(201).json({
+        data: criadas,
+        meta: {
+          message: `${criadas.length} bateria(s) de cronograma criada(s), sem escalação.`,
+          scheduleOnly: true,
+          teamsConsidered: previstas.reduce((soma, c) => soma + c.disputam, 0),
+          cutApplied: cortes.length > 0,
+        },
+      });
+    }
 
     // CORTE POR PROVA
     //
@@ -615,8 +743,10 @@ exports.generate = async (req, res, next) => {
 
       // eslint-disable-next-line no-await-in-loop
       const heat = await client.query(
-        `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds)
-         VALUES ($1, $2, $3, $4)
+        // planned_lanes fica nulo: a partir daqui o número de raias é o número
+        // de linhas em heat_teams, que é o dado de verdade.
+        `INSERT INTO heats (workout_id, heat_number, scheduled_time, duration_seconds, planned_lanes)
+         VALUES ($1, $2, $3, $4, NULL)
          RETURNING id, workout_id, heat_number,
                    to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
                    duration_seconds, status`,
@@ -831,7 +961,7 @@ exports.getByWorkout = async (req, res, next) => {
     const heats = await queryAll(
       `SELECT id, workout_id, heat_number,
               to_char(scheduled_time, 'YYYY-MM-DD"T"HH24:MI:SS') AS scheduled_time,
-              duration_seconds, status
+              duration_seconds, planned_lanes, status
        FROM heats
        WHERE workout_id = $1
        ORDER BY heat_number ASC`,

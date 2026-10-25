@@ -2,6 +2,7 @@ import { Fragment } from 'react';
 import { HeatBreakBanner } from './HeatBreakBanner';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { LaneRow } from './LaneRow';
+import { RaiasEmBranco } from './RaiasEmBranco';
 import { LaneRemanejarRow, RaiaLivreRow } from './RemanejarRows';
 import { formatTime } from '../../lib/format';
 import type { Heat, HeatLane, ScoringType } from '../../types';
@@ -101,6 +102,10 @@ export function HeatsList({
                 </tr>
               </thead>
               <tbody>
+                {/* Bateria de cronograma: não há o que remanejar nem lançar. */}
+                {heat.teams.length === 0 && heat.planned_lanes !== null && (
+                  <RaiasEmBranco plannedLanes={heat.planned_lanes} colunasDepoisDaRaia={5} />
+                )}
                 {remanejar
                   ? (() => {
                       const ocupadas = new Set(heat.teams.map((t) => t.lane_number));

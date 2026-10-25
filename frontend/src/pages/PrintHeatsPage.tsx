@@ -146,6 +146,20 @@ export function PrintHeatsPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Bateria de cronograma: a folha sai com o horário e as
+                      raias em branco, para o organizador preencher à mão se a
+                      escalação for decidida no box. */}
+                  {heat.teams.length === 0 &&
+                    heat.planned_lanes !== null &&
+                    Array.from({ length: heat.planned_lanes }, (_, i) => (
+                      <tr key={`branco-${i}`} className="border-b border-border last:border-0">
+                        <td className="py-1.5 pr-2 text-sm font-bold tabular-nums">{i + 1}</td>
+                        <td className="py-1.5 pr-2 text-sm">—</td>
+                        <td className="py-1.5 pr-2 text-[10px]">—</td>
+                        <td className="py-1.5 pr-2 text-sm">—</td>
+                        <td className="py-1.5 text-sm">—</td>
+                      </tr>
+                    ))}
                   {heat.teams.map((lane) => (
                     <tr key={lane.heat_team_id} className="border-b border-border last:border-0">
                       <td className="py-1.5 pr-2 text-sm font-bold tabular-nums">

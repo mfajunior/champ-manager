@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react';
 import { NomeComAtletas } from '../teams/NomeComAtletas';
+import { RaiasEmBranco } from './RaiasEmBranco';
 import { HeatTransitionBanner } from './HeatTransitionBanner';
 import { abreviarCategoria } from '../../lib/categorias';
 import { formatTime } from '../../lib/format';
@@ -86,6 +87,10 @@ export function PublicHeatsList({ heats }: { heats: Heat[] }) {
                 </tr>
               </thead>
               <tbody>
+                {/* Bateria de cronograma: horário definido, escalação não. */}
+                {heat.teams.length === 0 && heat.planned_lanes !== null && (
+                  <RaiasEmBranco plannedLanes={heat.planned_lanes} colunasDepoisDaRaia={2} />
+                )}
                 {heat.teams.map((lane) => (
                   <tr key={lane.heat_team_id} className="border-b border-border last:border-0">
                     <td className="px-3 py-2 text-sm font-semibold">{lane.lane_number}</td>
