@@ -186,6 +186,12 @@ export interface Heat {
   duration_seconds: number | null;
   scheduled_time: string | null;
   status: 'scheduled' | 'in_progress' | 'completed';
+  /**
+   * Quantas raias esta bateria VAI ter, quando ela ainda não tem escalação
+   * (migration 018). Null numa bateria escalada — ali o número de raias é o
+   * tamanho de `teams`, que é o dado de verdade.
+   */
+  planned_lanes: number | null;
   teams: HeatLane[];
 }
 
