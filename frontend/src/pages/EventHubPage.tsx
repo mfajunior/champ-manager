@@ -48,22 +48,19 @@ export function EventHubPage() {
           to={`/placar/${championshipId}`}
           className="border border-border bg-card p-6 text-center transition-colors hover:border-secondary"
         >
-          <span className="font-display text-lg uppercase tracking-wide">Leaderboard</span>
-          <p className="mt-1 text-xs text-muted-foreground">Ranking ao vivo por categoria</p>
+          <span className="block font-display text-lg uppercase tracking-wide">Leaderboard</span>
         </Link>
         <Link
           to={`/evento/${championshipId}/baterias`}
           className="border border-border bg-card p-6 text-center transition-colors hover:border-secondary"
         >
-          <span className="font-display text-lg uppercase tracking-wide">Baterias</span>
-          <p className="mt-1 text-xs text-muted-foreground">Raias, horários e resultados</p>
+          <span className="block font-display text-lg uppercase tracking-wide">Baterias</span>
         </Link>
         <Link
           to={`/evento/${championshipId}/provas`}
           className="border border-border bg-card p-6 text-center transition-colors hover:border-secondary"
         >
-          <span className="font-display text-lg uppercase tracking-wide">Provas (WODs)</span>
-          <p className="mt-1 text-xs text-muted-foreground">Descrição de cada prova por categoria</p>
+          <span className="block font-display text-lg uppercase tracking-wide">Provas (WODs)</span>
         </Link>
       </div>
     </PublicLayout>
